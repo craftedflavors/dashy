@@ -1,0 +1,21 @@
+# Runs the MUSA platform test suite (standard-library Python, no dependencies)
+name: 🛡️ MUSA tests
+on:
+  pull_request:
+    paths: ['musa/**', '.github/workflows/musa-tests.yml']
+  push:
+    branches: [master]
+    paths: ['musa/**']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Run tests
+      working-directory: musa
+      run: python -W error::ResourceWarning -m unittest discover -s tests -v 2>&1 | grep -v '^\[musa\]\|^\[whatsapp\]'; exit ${PIPESTATUS[0]}
