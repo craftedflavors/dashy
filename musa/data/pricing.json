@@ -1,0 +1,136 @@
+{
+  "_comment": "MUSA revenue catalogue. Prices are launch hypotheses — test them. 'volume' = units sold in month 1 under the BASE scenario; 'growth' = monthly multiplicative growth. Every product is deliberately structured so MUSA never charges a worker a placement/recruitment fee (that requires a BEOE OEP licence in Pakistan and a Department of Labour licence in Cyprus). Placement revenue only flows via licensed partners on an employer-pays basis.",
+  "currency": "EUR",
+  "fx_pkr_per_eur": 300,
+  "products": [
+    {
+      "id": "scan_free",
+      "name": "Scam Shield (free message scan)",
+      "buyer": "worker / family",
+      "type": "one_off",
+      "price": 0,
+      "volume": 400,
+      "growth": 1.15,
+      "cogs": 0,
+      "purpose": "Top-of-funnel lead magnet; captures WhatsApp leads. Conversion to paid report ~5-8%."
+    },
+    {
+      "id": "verify_basic",
+      "name": "Verify-Before-You-Pay Report",
+      "buyer": "worker / family",
+      "type": "one_off",
+      "price": 15,
+      "volume": 25,
+      "growth": 1.12,
+      "cogs": 3,
+      "purpose": "OEP licence + BEOE permission check, employer registry check, red-flag analysis, itemised cost sanity check. 48h delivery."
+    },
+    {
+      "id": "verify_deep",
+      "name": "Deep Due-Diligence Case File",
+      "buyer": "worker family / small OEP",
+      "type": "one_off",
+      "price": 79,
+      "volume": 4,
+      "growth": 1.1,
+      "cogs": 15,
+      "purpose": "Everything in Basic + direct employer confirmation, work-permit reference check, contract review, payment-firewall decision, written case report."
+    },
+    {
+      "id": "docs_concierge",
+      "name": "Document & Attestation Concierge",
+      "buyer": "worker / student",
+      "type": "one_off",
+      "price": 45,
+      "volume": 6,
+      "growth": 1.08,
+      "cogs": 15,
+      "purpose": "HEC/IBCC/MOFA attestation guidance, EU-format CV, translation coordination. No document creation — only lawful preparation of genuine documents."
+    },
+    {
+      "id": "cv_eu",
+      "name": "EU-format CV + Skills Match Profile",
+      "buyer": "worker",
+      "type": "one_off",
+      "price": 10,
+      "volume": 30,
+      "growth": 1.1,
+      "cogs": 1,
+      "purpose": "AI-generated Europass-style CV + match score against live Cyprus demand sectors. Builds the talent pool you later supply to licensed agencies."
+    },
+    {
+      "id": "oep_trust_badge",
+      "name": "MUSA Verified Recruiter badge (OEP subscription)",
+      "buyer": "BEOE-licensed OEP",
+      "type": "monthly",
+      "price": 99,
+      "volume": 2,
+      "growth": 1.1,
+      "cogs": 10,
+      "churn": 0.05,
+      "purpose": "Licensed OEPs pay to be listed as verified in Scam Shield results + get Sentinel case tooling. Badge is revocable on any red-flag pattern."
+    },
+    {
+      "id": "agency_saas",
+      "name": "Partner Platform Pro (white-label Sentinel)",
+      "buyer": "consultancy / agency",
+      "type": "monthly",
+      "price": 499,
+      "volume": 0,
+      "growth": 1.0,
+      "start_month": 4,
+      "start_volume": 1,
+      "add_per_month": 1,
+      "cogs": 40,
+      "churn": 0.04,
+      "purpose": "MPP Tier 1 from the Meridian blueprint: case engine, risk scoring, cost ledger, branded reports."
+    },
+    {
+      "id": "employer_sourcing",
+      "name": "Employer Sourcing Fee (via licensed partner)",
+      "buyer": "Cyprus employer",
+      "type": "one_off",
+      "price": 400,
+      "volume": 0,
+      "growth": 1.0,
+      "start_month": 3,
+      "start_volume": 2,
+      "add_per_month": 2,
+      "cogs": 120,
+      "purpose": "Cyprus employer pays per pre-vetted candidate shortlisted. Contracted THROUGH a Department-of-Labour-licensed Cyprus agency and a BEOE-licensed OEP; MUSA earns a referral/tech share. Worker pays nothing to MUSA."
+    },
+    {
+      "id": "student_commission",
+      "name": "University placement commission",
+      "buyer": "Cyprus university / college",
+      "type": "one_off",
+      "price": 900,
+      "volume": 0,
+      "growth": 1.0,
+      "start_month": 4,
+      "start_volume": 1,
+      "add_per_month": 1,
+      "cogs": 150,
+      "purpose": "Institutions pay recruitment agents a share of first-year tuition (commonly 10-20%; verify each agreement). Requires a signed agent agreement per institution."
+    },
+    {
+      "id": "corridor_intel",
+      "name": "Cyprus Corridor Intelligence (monthly brief)",
+      "buyer": "OEPs, agencies, lawyers",
+      "type": "monthly",
+      "price": 29,
+      "volume": 3,
+      "growth": 1.1,
+      "cogs": 2,
+      "churn": 0.06,
+      "purpose": "Monthly demand by sector, employer hiring signals, fee benchmarks, fraud-pattern alerts from the Reputation Graph."
+    }
+  ],
+  "fixed_costs_monthly": {
+    "hosting_and_ai": 60,
+    "whatsapp_business_api": 25,
+    "registries_and_lookups": 30,
+    "ads_and_content": 150,
+    "legal_retainer": 100
+  }
+}

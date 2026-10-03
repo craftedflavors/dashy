@@ -1,0 +1,13 @@
+{
+  "entities": [
+    {"id": "r1", "name": "ABC Overseas Consultants", "identifiers": {"phone": "+92 300 1234567", "email": "abcconsult@gmail.com", "bank": "HBL 0012-3456789-01", "domain": "abcjobs.pk"}, "outcomes": {"complaints": 2}},
+    {"id": "r2", "name": "Global European Employment", "identifiers": {"phone": "0300-1234567", "email": "globalemployment@gmail.com", "bank": "0012345678901"}},
+    {"id": "r3", "name": "Cyprus Jobs Hub", "identifiers": {"email": "info@abcjobs.pk"}},
+    {"id": "o1", "name": "Licensed OEP X", "type": "oep", "identifiers": {"phone": "+92 42 35761234", "domain": "oepx.com.pk"}}
+  ],
+  "documents": {
+    "contract_A": "Employment contract between Alpha Build Ltd and the employee. Salary 1100 euro gross per month. Working hours 40 per week. Accommodation provided by employer. Contract duration 24 months. Probation 3 months.",
+    "contract_B": "Employment contract between Beta Construct Ltd and the employee. Salary 1100 euro gross per month. Working hours 40 per week. Accommodation provided by employer. Contract duration 24 months. Probation 3 months.",
+    "contract_C": "Seasonal agricultural agreement. Piece-rate payment per crate harvested. Shared housing deducted from wages."
+  }
+}
