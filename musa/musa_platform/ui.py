@@ -1,5 +1,7 @@
 """Server-rendered pages. Every value that reaches HTML goes through e()."""
 from html import escape
+import json
+import os
 from urllib.parse import quote, urlencode
 
 from .compliance import CONSENT_TEXT, RETENTION_DAYS
@@ -31,10 +33,39 @@ def consent_box(kind, name="consent"):
             '<a href="/privacy">Privacy notice</a>.</span></label>' % (name, name, kind, e(CONSENT_TEXT[kind])))
 
 
-NAV = [("/check", "Scam Shield"), ("/opportunities", "Opportunities"), ("/match", "Match & CV"), ("/ask", "Ask"), ("/pricing", "Pricing")]
+NAV = [("/check", "Scam Shield"), ("/opportunities", "Opportunities"), ("/guides", "Guides"), ("/match", "Match & CV"), ("/ask", "Ask"), ("/pricing", "Pricing")]
 
 
-def layout(title, body, active="", description="", admin=False, flash=None):
+def site_url():
+    return os.environ.get("MUSA_SITE_URL", "").rstrip("/")
+
+
+def whatsapp_number():
+    return "".join(ch for ch in os.environ.get("MUSA_WHATSAPP", "") if ch.isdigit())
+
+
+def wa_link(text):
+    n = whatsapp_number()
+    return "https://wa.me/%s?%s" % (n, urlencode({"text": text})) if n else ""
+
+
+DEFAULT_DESC = "Check job and visa offers before you pay. Verified opportunities and hiring for the Pakistan–Cyprus corridor."
+
+
+def head_meta(title, description, path, jsonld):
+    """Canonical URL, Open Graph and JSON-LD for public pages (search and WhatsApp/Facebook link previews)."""
+    base = site_url()
+    out = ['<meta property="og:title" content="%s">' % e(title), '<meta property="og:description" content="%s">' % e(description),
+           '<meta property="og:type" content="website">', '<meta property="og:site_name" content="MUSA Corridor">', '<meta name="twitter:card" content="summary">']
+    if base and path is not None:
+        out.append('<link rel="canonical" href="%s%s">' % (e(base), e(path)))
+        out.append('<meta property="og:url" content="%s%s">' % (e(base), e(path)))
+    for block in ([jsonld] if isinstance(jsonld, dict) else (jsonld or [])):
+        out.append('<script type="application/ld+json">%s</script>' % json.dumps(block, ensure_ascii=False).replace("</", "<\\/"))
+    return "".join(out)
+
+
+def layout(title, body, active="", description="", admin=False, flash=None, path=None, jsonld=None):
     nav = "".join('<a href="%s"%s>%s</a>' % (h, ' aria-current="page"' if h == active else "", e(t)) for h, t in NAV)
     nav += '<a class="cta" href="/business">For business</a>'
     if admin:
@@ -50,7 +81,7 @@ def layout(title, body, active="", description="", admin=False, flash=None):
 <title>%s</title><meta name="description" content="%s">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&family=Public+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/static/site.css"><link rel="icon" href="data:image/svg+xml,%%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%%3E%%3Crect width='32' height='32' rx='6' fill='%%230c4a5c'/%%3E%%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='Arial' font-weight='700'%%3EM%%3C/text%%3E%%3C/svg%%3E">
+<link rel="stylesheet" href="/static/site.css">%s<link rel="icon" href="data:image/svg+xml,%%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%%3E%%3Crect width='32' height='32' rx='6' fill='%%230c4a5c'/%%3E%%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='Arial' font-weight='700'%%3EM%%3C/text%%3E%%3C/svg%%3E">
 %s</head><body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="site"><div class="wrap"><a class="logo" href="%s"><b>MUSA</b><span>PAK → CYP · VERIFIED CORRIDOR%s</span></a><nav class="main" aria-label="Main">%s</nav></div></header>
@@ -59,10 +90,12 @@ def layout(title, body, active="", description="", admin=False, flash=None):
 <div><b style="color:var(--ink)">MUSA Corridor</b><p>Verification-first help for work, study and hiring between Pakistan, Cyprus and the EU. We do not sell jobs or visas.</p></div>
 <ul><li><a href="/check">Scam Shield</a></li><li><a href="/opportunities">Opportunities</a></li><li><a href="/match">Match &amp; EU CV</a></li><li><a href="/ask">Ask the concierge</a></li></ul>
 <ul><li><a href="/business">For employers &amp; agencies</a></li><li><a href="/business/partners">Become a verified partner</a></li><li><a href="/business/employers">Request candidates</a></li><li><a href="/pricing">Pricing</a></li></ul>
-<ul><li><a href="/privacy">Privacy (GDPR)</a></li><li><a href="/privacy/request">Your data rights</a></li><li><a href="/agents">AI &amp; automation transparency</a></li><li><a href="/terms">Terms</a></li></ul>
+<ul>%s<li><a href="/privacy">Privacy (GDPR)</a></li><li><a href="/privacy/request">Your data rights</a></li><li><a href="/agents">AI &amp; automation transparency</a></li><li><a href="/terms">Terms</a></li></ul>
 </div></footer></body></html>""" % (
-        e(title + ("" if title.startswith("MUSA") else " · MUSA Corridor")), e(description or "Check job and visa offers before you pay. Verified opportunities and hiring for the Pakistan–Cyprus corridor."),
-        '<meta name="robots" content="noindex">' if admin else "", "/admin" if admin else "/", " · ADMIN" if admin else "", nav, flash_html, body)
+        e(title + ("" if title.startswith("MUSA") else " · MUSA Corridor")), e(description or DEFAULT_DESC),
+        "" if admin else head_meta(title, description or DEFAULT_DESC, path, jsonld),
+        '<meta name="robots" content="noindex">' if admin else "", "/admin" if admin else "/", " · ADMIN" if admin else "", nav, flash_html, body,
+        ('<li><a href="%s" target="_blank" rel="noopener">WhatsApp +%s</a></li>' % (e(wa_link("Assalam o alaikum, I have a question about an offer.")), e(whatsapp_number()))) if whatsapp_number() else "")
 
 
 # ---------------- public pages ----------------
@@ -129,7 +162,7 @@ def home(stats, latest):
  <p class="muted">GDPR consent on every form, data export and erasure on request, published retention periods, an audit trail for every decision, and an AI transparency page listing every agent and what a human must approve.</p></div>
  <div class="stack"><a class="btn" href="/agents">See our agents</a><a class="btn" href="/privacy">Read the privacy notice</a></div>
 </div></div></section>
-""" % (mrz, cards), active="/")
+""" % (mrz, cards), active="/", path="/", jsonld={"@context": "https://schema.org", "@type": "Organization", "name": "MUSA Corridor", "description": DEFAULT_DESC})
 
 
 def check_page(text="", result=None):
@@ -147,8 +180,9 @@ def check_page(text="", result=None):
             e(h["severity"]), e(h["severity"]), e(h["name"]), e(h["evidence"]), e(h["response"]), e(h.get("response_ur", ""))) for h in hits)
         res = """<div class="panel result" aria-live="polite">%s<p>%s</p>
 <div><div class="meter" role="img" aria-label="Risk %d out of 100"><i style="width:%d%%"></i></div><small class="muted">Risk %d/100 (%s) · %d warning sign(s)</small></div>
-%s<div class="note">Want it checked against official records before you pay? <a href="/report">Order a Verify-Before-You-Pay report (Rs 4,500)</a>.</div></div>""" % (
-            stamp, e(msg), d["risk"]["score"], min(100, d["risk"]["score"]), d["risk"]["score"], e(d["risk"]["band"]), len(hits), items)
+%s<div class="note">Want it checked against official records before you pay? <a href="/report">Order a Verify-Before-You-Pay report (Rs 4,500)</a>%s.</div></div>""" % (
+            stamp, e(msg), d["risk"]["score"], min(100, d["risk"]["score"]), d["risk"]["score"], e(d["risk"]["band"]), len(hits), items,
+            (' or <a href="%s" target="_blank" rel="noopener">ask us on WhatsApp</a>' % e(wa_link("Assalam o alaikum, Scam Shield found %d warning sign(s): %s. I want a report." % (len(hits), ", ".join(h["id"] for h in hits))))) if whatsapp_number() else "")
     return layout("Scam Shield", """<section><div class="wrap split">
 <form class="stack" method="post" action="/check"><span class="eyebrow">Scam Shield</span><h1>Is this offer a scam?</h1>
 <p class="muted">Paste what the agent sent: WhatsApp message, ad or offer letter. English or Roman Urdu. We check it against 20 patterns from real cases. The text is processed and discarded, not stored.</p>
@@ -157,7 +191,7 @@ def check_page(text="", result=None):
 <div class="stack">%s<div class="card"><h3>Five rules that protect your money</h3><ol class="muted" style="margin:0;padding-left:18px">
 <li>Get the OEP licence and BEOE permission number, and check both on beoe.gov.pk yourself.</li><li>Contract first, payment second.</li>
 <li>Pay the company, never a personal account or wallet, and get a receipt.</li><li>No one can guarantee a visa.</li><li>Never travel on a visit visa to work.</li></ol></div></div>
-</div></section>""" % (e(text), res), active="/check")
+</div></section>""" % (e(text), res), active="/check", path="/check", description="Paste a recruiter's message and see known scam warning signs instantly. Free, English and Roman Urdu.")
 
 
 def opportunities_page(rows, sectors, f, total):
@@ -176,7 +210,7 @@ def opportunities_page(rows, sectors, f, total):
 <div class="opps">%s</div>
 <p class="muted">API: <a href="/api/opportunities">/api/opportunities</a> (JSON)</p>
 </div></section>""" % (fmt_int(total), opts([""] + sectors, f.get("sector", "")), " selected" if f.get("tier") == "0" else "",
-                       " selected" if f.get("tier") == "2" else "", " selected" if f.get("visa") == "1" else "", e(f.get("q", "")), cards), active="/opportunities")
+                       " selected" if f.get("tier") == "2" else "", " selected" if f.get("visa") == "1" else "", e(f.get("q", "")), cards), active="/opportunities", path="/opportunities", description="Live Cyprus and EU opportunities for Pakistani workers, each labelled by source and trust level.")
 
 
 def opportunity_detail(o):
@@ -200,7 +234,7 @@ def opportunity_detail(o):
         {"lead": "We found this listing on a third-party site. Nobody has confirmed the employer, the job or the visa route yet.",
          "signal": "This comes from an official government source, but you still need to confirm the OEP and the employer.",
          "verified": "A MUSA analyst confirmed the employer and the recruiter's licence. Fees and contract still need checking for your case.",
-         "flagged": "We found problems with this listing. Do not pay for it.", "expired": "This listing has not been seen for 45 days."}.get(o["status"], "")), active="/opportunities")
+         "flagged": "We found problems with this listing. Do not pay for it.", "expired": "This listing has not been seen for 45 days."}.get(o["status"], "")), active="/opportunities", path="/opportunities/%d" % o["id"])
 
 
 def match_page(results=None, profile=None, token=None, live=None, flash=None):
@@ -284,7 +318,7 @@ def pricing_page(products):
 <h2 style="margin-top:28px">For businesses</h2><div class="plans">%s</div>
 <p class="note">Payments go only to MUSA's registered business accounts. If anyone gives you a personal account and claims it's MUSA, don't pay.</p></div></section>""" % (
         "".join(plan(p, p["id"] == "verify_basic", hrefs[p["id"]]) for p in worker),
-        "".join(plan(p, p["id"] == "agency_saas", hrefs[p["id"]]) for p in biz)), active="/pricing")
+        "".join(plan(p, p["id"] == "agency_saas", hrefs[p["id"]]) for p in biz)), active="/pricing", path="/pricing")
 
 
 def report_page(cfg, product="verify_basic", opp=None, error=None):
@@ -342,7 +376,7 @@ def business_page(products):
 <div class="plan"><span class="eyebrow">Universities</span><h3>Student pipeline</h3><div class="price">Commission</div><p class="muted">Admission-ready, document-verified applicants under a signed agent agreement. Accredited institutions only (CYQAA).</p><a class="btn" href="/business/partners">Talk to us</a></div>
 </div></section>
 <section><div class="wrap card stack"><h2>What we will not do</h2><p class="muted">Recruit without the required licences, charge workers placement fees, hide who receives a payment, or let a partner keep a badge after verified complaints. Partners are checked (KYB) before activation and monitored afterwards.</p></div></section>""" % (
-        fmt_int(by["oep_trust_badge"]["price"]), fmt_int(by["agency_saas"]["price"]), fmt_int(by["employer_sourcing"]["price"])), active="")
+        fmt_int(by["oep_trust_badge"]["price"]), fmt_int(by["agency_saas"]["price"]), fmt_int(by["employer_sourcing"]["price"])), active="", path="/business", description="Verified candidates, recruiter badges and case tooling for employers, agencies and universities in the Pakistan–Cyprus corridor.")
 
 
 def partner_apply_page(error=None):

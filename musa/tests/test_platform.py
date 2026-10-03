@@ -294,3 +294,50 @@ class RateLimit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Growth(unittest.TestCase):
+    def test_guides_and_sector_pages(self):
+        code, body, _ = SRV.req("/guides")
+        self.assertEqual(code, 200)
+        for g in SRV.state.guides:
+            code, body, _ = SRV.req("/guides/" + g["slug"])
+            self.assertEqual(code, 200, g["slug"])
+            self.assertIn('"@type": "FAQPage"', body)
+            self.assertIn("Sources:", body)
+        code, body, _ = SRV.req("/jobs/construction")
+        self.assertEqual(code, 200)
+        self.assertIn("Construction worker", body)
+        self.assertEqual(SRV.req("/jobs/not-a-sector")[0], 404)
+
+    def test_guides_only_cite_knowledge_base(self):
+        ids = {k["id"] for k in SRV.state.knowledge}
+        for g in SRV.state.guides:
+            self.assertTrue(g["faq"], g["slug"])
+            for q, a, srcs in g["faq"]:
+                self.assertTrue(srcs, q)
+                self.assertIn(a, [k["a"] for k in SRV.state.knowledge])
+        self.assertTrue(ids)
+
+    def test_robots_and_sitemap_follow_site_url(self):
+        os.environ.pop("MUSA_SITE_URL", None)
+        self.assertEqual(SRV.req("/sitemap.xml")[0], 404)
+        self.assertIn("Disallow: /admin", SRV.req("/robots.txt")[1])
+        os.environ["MUSA_SITE_URL"] = "https://musa.example.com"
+        try:
+            code, xml, h = SRV.req("/sitemap.xml")
+            self.assertEqual(code, 200)
+            self.assertIn("<loc>https://musa.example.com/guides/cyprus-visa-scams</loc>", xml)
+            self.assertIn("Sitemap: https://musa.example.com/sitemap.xml", SRV.req("/robots.txt")[1])
+            self.assertIn('rel="canonical" href="https://musa.example.com/check"', SRV.req("/check")[1])
+        finally:
+            os.environ.pop("MUSA_SITE_URL", None)
+
+    def test_whatsapp_links_when_configured(self):
+        self.assertNotIn("wa.me/", SRV.req("/")[1])
+        os.environ["MUSA_WHATSAPP"] = "+357 94 031786"
+        try:
+            self.assertIn("https://wa.me/35794031786?text=", SRV.req("/")[1])
+            self.assertIn("ask us on WhatsApp", SRV.req("/check", {"text": "visa 100% guarantee"})[1])
+        finally:
+            os.environ.pop("MUSA_WHATSAPP", None)

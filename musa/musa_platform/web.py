@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 from musa_sentinel import matching, payments, revenue, traps as traps_mod, whatsapp, leadlog
 
-from . import DATA_DIR, STATIC_DIR, admin_ui, agents, compliance, db, scout, ui
+from . import DATA_DIR, STATIC_DIR, admin_ui, agents, compliance, db, scout, seo, ui
 
 FLASH = {
     "verified": ("ok", "Marked verified."), "flagged": ("ok", "Flagged."), "expired": ("ok", "Expired."), "added": ("ok", "Opportunity added."),
@@ -45,6 +45,7 @@ class State:
         self.pricing = revenue.load_pricing()
         with open(os.path.join(DATA_DIR, "roles.json"), encoding="utf-8") as f:
             self.roles = json.load(f)["roles"]
+        self.guides = seo.guides(self.knowledge, self.traps)
         self.hits = defaultdict(deque)
         self.lock = threading.Lock()
 
@@ -148,6 +149,15 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def text(self, body, ctype):
+            data = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", ctype + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=3600")
             self.end_headers()
             self.wfile.write(data)
 
@@ -271,6 +281,26 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             if m:
                 p = db.q("SELECT * FROM partners WHERE slug=? AND status='approved'", (m.group(1),), one=True)
                 return (self.html(ui.partner_badge(p)) or True) if p else None
+            if path == "/guides":
+                return self.html(seo.guides_index(state.guides)) or True
+            m = re.fullmatch(r"/guides/([a-z0-9-]+)", path)
+            if m:
+                g = next((g for g in state.guides if g["slug"] == m.group(1)), None)
+                return (self.html(seo.guide_page(g, state.traps)) or True) if g else None
+            m = re.fullmatch(r"/jobs/([a-z0-9-]+)", path)
+            if m:
+                sector = next((x for x in seo.SECTOR_INTRO if seo.slugify(x) == m.group(1)), None)
+                if not sector:
+                    return None
+                live = "sector=? AND status IN ('lead','signal','verified')"
+                rows = db.q("SELECT * FROM opportunities WHERE %s ORDER BY (status='verified') DESC, source_tier, found_at DESC LIMIT 50" % live, (sector,))
+                return self.html(seo.sector_page(sector, rows, db.count("SELECT COUNT(*) FROM opportunities WHERE " + live, (sector,)),
+                                                 db.count("SELECT COUNT(*) FROM opportunities WHERE visa_signal=1 AND " + live, (sector,)))) or True
+            if path == "/sitemap.xml":
+                xml = seo.sitemap(state.guides, [x for x in seo.SECTOR_INTRO if x != "General"])
+                return (self.text(xml, "application/xml") or True) if xml else None
+            if path == "/robots.txt":
+                return self.text(seo.robots(), "text/plain") or True
             if path == "/agents":
                 return self.html(ui.agents_page(agents.REGISTRY)) or True
             if path == "/privacy":

@@ -39,6 +39,13 @@ docker build -t musa . && docker run -d -p 8080:8080 --env-file .env -v musa-dat
 | Developers / partners | `/api/opportunities` `/api/scan` `/api/stats` | JSON feed of opportunities and the scam scanner | Future paid API tier |
 | Operator | `/admin/*` | Money-first work queue, orders, KYB approvals, employer callbacks, Scout runs, data requests, audit log, revenue forecast, WhatsApp leads | — |
 
+**Growth engine (getting found):**
+- Six guides at `/guides/*`, written to answer what people actually search for: "Cyprus work visa from Pakistan", visa scams, how to check an OEP and BEOE permission, what a Cyprus visa costs, studying in Cyprus, and North Cyprus versus the Republic of Cyprus. They are built only from the sourced knowledge base and the scam-pattern list, and every answer lists its sources.
+- One live landing page per sector at `/jobs/<sector>` (construction, hospitality, logistics and so on), filled from the opportunity board.
+- Structured data for Google (FAQ, article and organisation markup), canonical links and Open Graph tags, so links look right when shared on WhatsApp and Facebook.
+- `sitemap.xml` and `robots.txt`, built from `MUSA_SITE_URL`.
+- WhatsApp links on the footer, scan results and guides, from `MUSA_WHATSAPP`.
+
 **Agents** (all listed publicly on `/agents` for EU AI Act transparency):
 - Sentinel checks messages for known scam patterns.
 - Scout fetches opportunities on a schedule (`MUSA_SCOUT_HOURS`), respects robots.txt, waits between requests and removes duplicates. Listings expire after 45 days unless they are seen again.
@@ -112,7 +119,7 @@ python -m musa_sentinel draft partner_cy_agency contact="HR Team" company="MUSA"
 python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today" --lang ur   # bot reply, offline
 python -m musa_sentinel leads-page --leads samples/leads.jsonl   # preview the leads page with demo data
 python -m musa_sentinel build                       # regenerate Scam Shield data + Dashy page after editing data/*.json
-python -m unittest discover -s tests                # 99 tests
+python -m unittest discover -s tests                # 103 tests
 ```
 
 Add `--json` before the subcommand to get machine-readable output for n8n, Make or Zapier, e.g. `python -m musa_sentinel --json scan ...`.
