@@ -39,6 +39,13 @@ docker build -t musa . && docker run -d -p 8080:8080 --env-file .env -v musa-dat
 | Developers / partners | `/api/opportunities` `/api/scan` `/api/stats` | JSON feed of opportunities and the scam scanner | Future paid API tier |
 | Operator | `/admin/*` | Money-first work queue, orders, KYB approvals, employer callbacks, Scout runs, data requests, audit log, revenue forecast, WhatsApp leads | — |
 
+**Partner billing:**
+- Approving a partner creates a private billing link (`/partner/billing/<ref>`) for their plan: €99/month for the badge or €499/month for Pro.
+- They pay by Stripe subscription, using the `plans.*.stripe_link` values in `data/payments.json`, or by bank transfer, which you confirm with **Mark paid +1 month**.
+- The public badge page only goes live while billing is active. When Stripe reports a cancelled or unpaid subscription, the badge comes down automatically.
+- **One Stripe webhook** (`/stripe/webhook`) now confirms website report orders, partner subscriptions and WhatsApp orders. Stripe's repeat deliveries are ignored.
+- In Stripe, subscribe the webhook to `checkout.session.completed` and `customer.subscription.deleted`.
+
 **Employer shortlists (the €400-per-hire loop):** candidates can tick an optional box to share their CV with verified employers. In *Admin → Employers → Build shortlist*, MUSA ranks those candidates against a role template from the employer's sector, with the gaps explained. You add the best ones, and the employer gets a private link (`/shortlist/<token>`, not indexed by search engines) showing CVs **without contact details**, so interviews go through MUSA. Track each candidate as proposed, sent, interviewing, hired or rejected. Hires show up as placement fees on the revenue page. If a candidate deletes their profile, they disappear from every shortlist immediately.
 
 **Growth engine (getting found):**
@@ -122,7 +129,7 @@ python -m musa_sentinel draft partner_cy_agency contact="HR Team" company="MUSA"
 python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today" --lang ur   # bot reply, offline
 python -m musa_sentinel leads-page --leads samples/leads.jsonl   # preview the leads page with demo data
 python -m musa_sentinel build                       # regenerate Scam Shield data + Dashy page after editing data/*.json
-python -m unittest discover -s tests                # 106 tests
+python -m unittest discover -s tests                # 109 tests
 ```
 
 Add `--json` before the subcommand to get machine-readable output for n8n, Make or Zapier, e.g. `python -m musa_sentinel --json scan ...`.

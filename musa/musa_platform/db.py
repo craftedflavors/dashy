@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS scout_runs (
 );
 """
 
+# Columns added after first release: applied to existing databases on startup.
+MIGRATIONS = {
+    "partners": [("billing_status", "TEXT DEFAULT 'none'"), ("billing_ref", "TEXT"), ("paid_until", "TEXT"), ("stripe_subscription", "TEXT")],
+}
+
 _local = threading.local()
 _init_lock = threading.Lock()
 _initialised = set()
@@ -85,6 +90,12 @@ def conn():
         with _init_lock:
             if path not in _initialised:
                 c.executescript(SCHEMA)
+                for table, cols in MIGRATIONS.items():
+                    have = {r[1] for r in c.execute("PRAGMA table_info(%s)" % table)}
+                    for name, decl in cols:
+                        if name not in have:
+                            c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
+                c.commit()
                 _initialised.add(path)
         if not hasattr(_local, "conns"):
             _local.conns = {}

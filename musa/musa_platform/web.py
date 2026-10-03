@@ -285,7 +285,8 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 return self.html(ui.employer_page()) or True
             m = re.fullmatch(r"/partners/([a-z0-9-]{3,80})", path)
             if m:
-                p = db.q("SELECT * FROM partners WHERE slug=? AND status='approved'", (m.group(1),), one=True)
+                p = db.q("SELECT * FROM partners WHERE slug=? AND status='approved' AND billing_status='active' "
+                         "AND (paid_until IS NULL OR paid_until >= ?)", (m.group(1), db.now_iso()), one=True)
                 return (self.html(ui.partner_badge(p)) or True) if p else None
             if path == "/guides":
                 return self.html(seo.guides_index(state.guides)) or True
@@ -316,6 +317,12 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 items = [dict(r, profile=json.loads(r["data"])) for r in rows if json.loads(r["data"]).get("share_ok")]
                 db.audit("employer", "shortlist.viewed", target=rows[0]["request_id"])
                 return self.html(ui.shortlist_page(req, items)) or True
+            m = re.fullmatch(r"/partner/billing/(PARTNER-\d+-[0-9A-F]{6})", path)
+            if m:
+                p = db.q("SELECT * FROM partners WHERE billing_ref=?", (m.group(1),), one=True)
+                if not p:
+                    return None
+                return self.html(ui.partner_billing_page(p, self.plan_for(p), state.payments, self.flash(qs))) or True
             if path == "/agents":
                 return self.html(ui.agents_page(agents.REGISTRY)) or True
             if path == "/privacy":
@@ -372,6 +379,11 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 return self.redirect("/order/%s?m=claimed" % m.group(1))
             if path == "/business/partners":
                 return self.post_partner(f)
+            m = re.fullmatch(r"/partner/billing/(PARTNER-\d+-[0-9A-F]{6})/paid", path)
+            if m:
+                db.x("UPDATE partners SET billing_status='claimed' WHERE billing_ref=? AND billing_status='unpaid'", (m.group(1),))
+                db.audit("partner", "billing.claimed", target=m.group(1))
+                return self.redirect("/partner/billing/%s?m=claimed" % m.group(1))
             if path == "/business/employers":
                 return self.post_employer(f)
             if path == "/privacy/request":
@@ -434,6 +446,60 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             rid = db.insert("employer_requests", headcount=head, created_at=db.now_iso(), consent_at=db.now_iso(), **clean)
             db.audit("employer", "employer.requested", target=rid)
             return self.html(ui.layout("Request received", '<section><div class="wrap stack" style="max-width:720px"><span class="stamp green">Received</span><h1>Thank you</h1><p>We will contact %s within 1 working day to confirm roles, timing and the licensed agency that will handle the permits.</p><a class="btn" href="/business">Back</a></div></section>' % ui.e(clean["contact_name"])))
+
+        def plan_for(self, p):
+            plans = state.payments.get("plans", {})
+            return plans.get(p["tier"]) or plans.get("pro") or {"name": "Partner plan", "eur": 0, "interval": "month", "stripe_link": ""}
+
+        def activate_partner(self, pid, months=None, subscription=None, by="system"):
+            """Manual payments extend paid_until by whole months; Stripe subscriptions stay active until Stripe ends them."""
+            p = db.q("SELECT * FROM partners WHERE id=?", (pid,), one=True)
+            if not p:
+                return
+            if subscription:
+                db.x("UPDATE partners SET billing_status='active', paid_until=NULL, stripe_subscription=? WHERE id=?", (subscription, pid))
+            else:
+                from datetime import datetime, timedelta, timezone
+                start = max(datetime.now(timezone.utc), datetime.fromisoformat(p["paid_until"]) if p["paid_until"] else datetime.now(timezone.utc))
+                until = (start + timedelta(days=31 * (months or 1))).isoformat(timespec="seconds")
+                db.x("UPDATE partners SET billing_status='active', paid_until=? WHERE id=?", (until, pid))
+            db.audit(by, "partner.billing_active", target=pid)
+
+        def _stripe(self):
+            """Stripe webhook for every product: web report orders, partner subscriptions, and WhatsApp orders."""
+            if not stripe_secret:
+                return self._send(404)
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 1_000_000:
+                return self._send(413)
+            body = self.rfile.read(length)
+            if not payments.verify_stripe_signature(stripe_secret, body, self.headers.get("Stripe-Signature")):
+                return self._send(400)
+            try:
+                event = json.loads(body)
+            except ValueError:
+                return self._send(400)
+            ended = payments.parse_subscription_end(event)
+            if ended:
+                n = db.xc("UPDATE partners SET billing_status='lapsed' WHERE stripe_subscription=?", (ended,))
+                if n:
+                    db.audit("stripe", "partner.billing_lapsed", detail={"subscription": ended})
+                return self._send(200, b"ok")
+            paid = payments.parse_stripe_event(event)
+            if not paid:
+                return self._send(200, b"ok")
+            if db.q("SELECT 1 FROM audit WHERE action='stripe.event' AND target=?", (paid["event_id"] or "",), one=True):
+                return self._send(200, b"ok")  # Stripe retries deliveries
+            ref = paid["reference"]
+            partner = db.q("SELECT id FROM partners WHERE billing_ref=?", (ref,), one=True)
+            if partner:
+                self.activate_partner(partner["id"], months=1 if not paid.get("subscription") else None, subscription=paid.get("subscription"), by="stripe")
+            elif db.q("SELECT 1 FROM orders WHERE ref=?", (ref,), one=True):
+                db.x("UPDATE orders SET status='paid', paid_at=?, method='card' WHERE ref=? AND status IN ('requested','claimed')", (db.now_iso(), ref))
+            else:
+                bot.confirm_payment(ref, "card", paid["amount"], paid["currency"], paid["event_id"])
+            db.audit("stripe", "stripe.event", target=paid["event_id"] or "", detail={"reference": ref, "amount": paid["amount"], "currency": paid["currency"]})
+            return self._send(200, b"ok")
 
         def shortlist_token(self, rid):
             row = db.q("SELECT token FROM shortlists WHERE request_id=? LIMIT 1", (rid,), one=True)
@@ -516,6 +582,10 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                     db.x("UPDATE orders SET status='delivered', delivered_at=? WHERE ref=? AND status='paid'", (db.now_iso(), ref))
                 db.audit("admin", "order." + act, target=ref)
                 return self.redirect("/admin/orders?m=" + act)
+            m = re.fullmatch(r"/admin/partners/(\d+)/paid", path)
+            if m:
+                self.activate_partner(int(m.group(1)), months=1, by="admin")
+                return self.redirect("/admin/partners?m=paid")
             m = re.fullmatch(r"/admin/partners/(\d+)/(approve|reject|revoke)", path)
             if m:
                 pid, act = int(m.group(1)), m.group(2)
@@ -525,7 +595,9 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                         slug = re.sub(r"[^a-z0-9]+", "-", p["org_name"].lower()).strip("-")[:60] or "partner"
                         if db.q("SELECT 1 FROM partners WHERE slug=? AND id!=?", (slug, pid), one=True):
                             slug = "%s-%d" % (slug, pid)
-                        db.x("UPDATE partners SET status='approved', slug=?, decided_at=? WHERE id=?", (slug, db.now_iso(), pid))
+                        db.x("UPDATE partners SET status='approved', slug=?, decided_at=?, billing_ref=COALESCE(billing_ref, ?), "
+                             "billing_status=CASE WHEN billing_status='active' THEN 'active' ELSE 'unpaid' END WHERE id=?",
+                             (slug, db.now_iso(), "PARTNER-%d-%s" % (pid, secrets.token_hex(3).upper()), pid))
                     else:
                         db.x("UPDATE partners SET status=?, decided_at=? WHERE id=?", ("rejected" if act == "reject" else "revoked", db.now_iso(), pid))
                     db.audit("admin", "partner." + act, target=pid)

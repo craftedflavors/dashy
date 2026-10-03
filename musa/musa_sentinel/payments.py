@@ -127,4 +127,11 @@ def parse_stripe_event(event):
     if obj.get("payment_status") != "paid" or not obj.get("client_reference_id"):
         return None
     return {"reference": obj["client_reference_id"], "amount": (obj.get("amount_total") or 0) / 100,
-            "currency": (obj.get("currency") or "").upper(), "event_id": event.get("id")}
+            "currency": (obj.get("currency") or "").upper(), "event_id": event.get("id"), "subscription": obj.get("subscription")}
+
+
+def parse_subscription_end(event):
+    """Subscription id when a Stripe subscription ends (cancelled or unpaid), else None."""
+    if event.get("type") != "customer.subscription.deleted":
+        return None
+    return ((event.get("data") or {}).get("object") or {}).get("id")

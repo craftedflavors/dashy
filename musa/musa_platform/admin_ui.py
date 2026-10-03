@@ -68,12 +68,14 @@ def partners(rows, flash=None):
         if p["status"] in ("pending", "in_review"):
             act = _form("/admin/partners/%d/approve" % p["id"], "Approve") + _form("/admin/partners/%d/reject" % p["id"], "Reject")
         elif p["status"] == "approved":
-            act = '<a href="/partners/%s">Badge page</a> ' % e(p["slug"]) + _form("/admin/partners/%d/revoke" % p["id"], "Revoke")
+            act = ('<a href="/partner/billing/%s">Billing link</a> ' % e(p["billing_ref"])) + _form("/admin/partners/%d/paid" % p["id"], "Mark paid +1 month") + \
+                (('<a href="/partners/%s">Badge</a> ' % e(p["slug"])) if p["billing_status"] == "active" else "") + _form("/admin/partners/%d/revoke" % p["id"], "Revoke")
         trs.append("<tr><td>%s<br><small class=\"muted\">%s · %s</small></td><td>%s</td><td class=\"mono\">%s<br>%s</td><td>%s<br><small>%s %s</small></td><td>%s</td><td><div class=\"row\">%s</div></td></tr>" % (
             e(p["org_name"]), e(p["org_type"]), e(p["country"]), e(p["tier"]), e(p["licence_no"] or "—"), e(p["registry_no"] or "—"),
-            e(p["contact_name"]), e(p["email"]), e(p["phone"] or ""), e(p["status"]), act))
+            e(p["contact_name"]), e(p["email"]), e(p["phone"] or ""), e(p["status"]) + "<br><small class=\"muted\">billing: %s%s</small>" % (
+                e(p["billing_status"] or "none"), (" until " + e(p["paid_until"][:10])) if p["paid_until"] else ""), act))
     return layout("Admin · Partners", """<section><div class="wrap stack"><h1>Partner applications (KYB)</h1>
-<p class="note">Approve only after: licence confirmed on the official register (BEOE / Cyprus Department of Labour), company registration confirmed, official contact details match, owner video call done.</p>%s</div></section>""" % _table(
+<p class="note">After approval, send the partner their billing link; the public badge goes live only once billing is active. Approve only after: licence confirmed on the official register (BEOE / Cyprus Department of Labour), company registration confirmed, official contact details match, owner video call done.</p>%s</div></section>""" % _table(
         ["Organisation", "Plan", "Licence / registry", "Contact", "Status", "Action"], trs), active="/admin/partners", admin=True, flash=flash)
 
 

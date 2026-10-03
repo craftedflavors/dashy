@@ -36,7 +36,7 @@ class Server:
         scout.seed()
         bot = whatsapp.Bot(leads_file=os.environ["MUSA_LEADS_FILE"])
         self.state = state
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.make_handler(state, bot, "vt", "as", "pw", None))
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.make_handler(state, bot, "vt", "as", "pw", "whsec_test"))
         self.httpd.RequestHandlerClass.log_message = lambda *a: None
         self.base = "http://127.0.0.1:%d" % self.httpd.server_address[1]
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
@@ -138,6 +138,12 @@ class Flows(unittest.TestCase):
         pid = db.q("SELECT id FROM partners WHERE org_name='Lahore Overseas Ltd'", one=True)["id"]
         self.assertEqual(SRV.req("/partners/lahore-overseas-ltd")[0], 404)  # not approved yet
         SRV.req("/admin/partners/%d/approve" % pid, b"", AUTH)
+        self.assertEqual(SRV.req("/partners/lahore-overseas-ltd")[0], 404)  # approved but not paid
+        ref = db.q("SELECT billing_ref FROM partners WHERE id=?", (pid,), one=True)["billing_ref"]
+        self.assertIn("Waiting for payment", SRV.req("/partner/billing/" + ref)[1])
+        self.assertEqual(SRV.req("/partner/billing/%s/paid" % ref, b"")[0], 303)
+        self.assertEqual(db.q("SELECT billing_status FROM partners WHERE id=?", (pid,), one=True)["billing_status"], "claimed")
+        SRV.req("/admin/partners/%d/paid" % pid, b"", AUTH)
         code, body, _ = SRV.req("/partners/lahore-overseas-ltd")
         self.assertEqual(code, 200)
         self.assertIn("OEP-1234", body)
@@ -385,3 +391,42 @@ class RomanUrdu(unittest.TestCase):
         self.assertIn("Ruk jayein", body)
         self.assertIn("zaati", body)  # Urdu reply from the trap library
         self.assertIn('href="/check"', SRV.req("/ur/check")[1])
+
+
+def _stripe_post(event):
+    import hashlib, hmac, time as _t
+    body = json.dumps(event).encode()
+    ts = int(_t.time())
+    sig = "t=%d,v1=%s" % (ts, hmac.new(b"whsec_test", ("%d." % ts).encode() + body, hashlib.sha256).hexdigest())
+    return SRV.req("/stripe/webhook", body, {"Stripe-Signature": sig, "Content-Type": "application/json"})
+
+
+def _checkout(ref, eid, sub=None):
+    return {"id": eid, "type": "checkout.session.completed", "data": {"object": {
+        "client_reference_id": ref, "payment_status": "paid", "amount_total": 9900, "currency": "eur", "subscription": sub}}}
+
+
+class StripeRouting(unittest.TestCase):
+    def test_web_order_card_payment(self):
+        code, _, h = SRV.req("/report", {"name": "Card Payer", "contact": "c@x.pk", "details": "OEP 9", "consent": "on"})
+        ref = h["Location"].rsplit("/", 1)[1]
+        self.assertEqual(_stripe_post(_checkout(ref, "evt_order_1"))[0], 200)
+        o = db.q("SELECT status, method FROM orders WHERE ref=?", (ref,), one=True)
+        self.assertEqual((o["status"], o["method"]), ("paid", "card"))
+
+    def test_partner_subscription_lifecycle(self):
+        SRV.req("/business/partners", {"org_name": "Karachi Careers", "org_type": "oep", "country": "Pakistan", "contact_name": "K",
+                                       "email": "k@kc.pk", "tier": "badge", "consent": "on"})
+        pid = db.q("SELECT id FROM partners WHERE org_name='Karachi Careers'", one=True)["id"]
+        SRV.req("/admin/partners/%d/approve" % pid, b"", AUTH)
+        ref = db.q("SELECT billing_ref FROM partners WHERE id=?", (pid,), one=True)["billing_ref"]
+        self.assertEqual(_stripe_post(_checkout(ref, "evt_sub_1", sub="sub_123"))[0], 200)
+        self.assertEqual(SRV.req("/partners/karachi-careers")[0], 200)
+        _stripe_post(_checkout(ref, "evt_sub_1", sub="sub_123"))  # duplicate delivery is ignored
+        self.assertEqual(db.count("SELECT COUNT(*) FROM audit WHERE action='stripe.event' AND target='evt_sub_1'"), 1)
+        _stripe_post({"id": "evt_end", "type": "customer.subscription.deleted", "data": {"object": {"id": "sub_123"}}})
+        self.assertEqual(SRV.req("/partners/karachi-careers")[0], 404)
+
+    def test_bad_signature(self):
+        body = json.dumps(_checkout("x", "e")).encode()
+        self.assertEqual(SRV.req("/stripe/webhook", body, {"Stripe-Signature": "t=1,v1=00"})[0], 400)

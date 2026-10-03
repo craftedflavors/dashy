@@ -431,8 +431,30 @@ def partner_badge(p):
 <span class="stamp green">Verified partner</span><h1>%s</h1><div class="card"><dl style="margin:0;display:grid;grid-template-columns:max-content 1fr;gap:8px 16px">
 <dt class="muted">Type</dt><dd style="margin:0">%s</dd><dt class="muted">Country</dt><dd style="margin:0">%s</dd><dt class="muted">Licence</dt><dd style="margin:0" class="mono">%s</dd>
 <dt class="muted">Website</dt><dd style="margin:0">%s</dd><dt class="muted">Verified on</dt><dd style="margin:0" class="mono">%s</dd></dl></div>
-<p class="muted">MUSA checked this organisation's licence and registration on the date shown. A badge does not guarantee any specific job or visa. Always check each offer's BEOE permission and contract. Report a problem: <a href="/ask">contact us</a>.</p></div></section>""" % (
+<p class="muted">MUSA checked this organisation's licence and registration on the date shown. Partners pay a subscription; verification standards are the same for every partner and badges are revoked after verified complaints. A badge does not guarantee any specific job or visa. Always check each offer's BEOE permission and contract. Report a problem: <a href="/ask">contact us</a>.</p></div></section>""" % (
         e(p["org_name"]), e(p["org_type"]), e(p["country"]), e(p["licence_no"] or "—"), e(p["website"] or "—"), e((p["decided_at"] or "")[:10])))
+
+
+def partner_billing_page(p, plan, cfg, flash=None):
+    status = {"unpaid": "Waiting for payment", "claimed": "Payment reported — we are confirming it", "active": "Active",
+              "lapsed": "Lapsed — renew to restore your badge", "none": "Not yet approved"}.get(p["billing_status"] or "none", p["billing_status"])
+    rows = []
+    if plan.get("stripe_link"):
+        url = plan["stripe_link"] + ("&" if "?" in plan["stripe_link"] else "?") + urlencode({"client_reference_id": p["billing_ref"]})
+        rows.append('<div class="card row" style="justify-content:space-between"><b>Card (monthly, cancel any time)</b><a class="btn primary" href="%s" target="_blank" rel="noopener">Subscribe €%s/%s</a></div>' % (e(url), e(plan["eur"]), e(plan["interval"])))
+    for m in cfg.get("methods", []):
+        if m["type"] == "bank" and m.get("account_title") and (m.get("iban") or m.get("raast_id")):
+            rows.append('<div class="card"><b>%s</b><p class="mono" style="margin:6px 0 0">%s</p></div>' % (e(m["label"]), e(" · ".join(x for x in [m.get("bank"), m.get("iban"), ("Raast " + m["raast_id"]) if m.get("raast_id") else "", m["account_title"]] if x))))
+    pay = ""
+    if p["status"] == "approved" and p["billing_status"] in ("unpaid", "lapsed"):
+        pay = """<h2>Activate your badge</h2>%s<p class="note">For bank transfers, write <b class="mono">%s</b> in the payment note.</p>
+<form method="post" action="/partner/billing/%s/paid" class="row"><button class="btn" type="submit">I have paid by bank transfer</button></form>""" % (
+            "".join(rows) or '<div class="card"><p class="muted" style="margin:0">We will email you payment details within one working day.</p></div>', e(p["billing_ref"]), e(p["billing_ref"]))
+    live = ('<p>Your public badge page: <a href="/partners/%s">/partners/%s</a></p>' % (e(p["slug"]), e(p["slug"]))) if p["billing_status"] == "active" and p["slug"] else ""
+    return layout("Partner billing", """<section><div class="wrap stack" style="max-width:760px"><span class="eyebrow">Partner billing</span>
+<h1 style="font-size:clamp(1.6rem,4vw,2.4rem)">%s</h1><div class="row"><span class="chip">%s · €%s/%s</span><span class="chip%s">%s</span></div>%s%s
+<p class="muted">Every partner passes the same verification checks, whatever they pay. A badge is revoked after verified complaints, even on a paid plan.</p></div></section>""" % (
+        e(p["org_name"]), e(plan["name"]), e(plan["eur"]), e(plan["interval"]), " ok" if p["billing_status"] == "active" else "", e(status), live, pay), flash=flash, noindex=True)
 
 
 def agents_page(registry):
