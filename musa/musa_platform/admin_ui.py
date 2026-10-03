@@ -80,7 +80,7 @@ def partners(rows, flash=None):
 def employers(rows, flash=None):
     trs = "".join("<tr><td>%s<br><small class=\"muted\">%s · %s</small></td><td class=\"num\">%s</td><td><small>%s</small></td><td>%s<br><small>%s %s</small></td><td>%s</td><td>%s</td></tr>" % (
         e(r["company"]), e(r["sector"]), e(r["country"]), e(r["headcount"]), e(r["roles"]), e(r["contact_name"]), e(r["email"]), e(r["phone"] or ""), e(r["status"]),
-        _form("/admin/employers/%d/contacted" % r["id"], "Mark contacted") if r["status"] == "new" else "") for r in rows)
+        ('<a class="btn small" href="/admin/employers/%d">Build shortlist</a> ' % r["id"]) + (_form("/admin/employers/%d/contacted" % r["id"], "Mark contacted") if r["status"] == "new" else "")) for r in rows)
     return layout("Admin · Employers", '<section><div class="wrap stack"><h1>Employer requests</h1>%s</div></section>' % _table(
         ["Company", "#Headcount", "Roles", "Contact", "Status", "Action"], [trs] if trs else []), active="/admin/employers", admin=True, flash=flash)
 
@@ -113,11 +113,42 @@ def compliance(dsars, audit_rows, export_json=None, flash=None):
 
 
 def revenue(fc, actual, flash=None):
+    placements = actual.get("placements", 0)
     rows = "".join("<tr><td>%d</td><td class=\"num\">%s</td><td class=\"num\">%s</td><td class=\"num\">%s</td><td class=\"num\">%s</td></tr>" % (
         r["month"], fmt_int(r["revenue"]), fmt_int(r["mrr"]), fmt_int(r["profit"]), fmt_int(r["cumulative_profit"])) for r in fc["rows"])
     return layout("Admin · Revenue", """<section><div class="wrap stack"><h1>Revenue</h1>
 <div class="kpis"><div class="kpi"><b>%s</b><span>Paid orders, PKR (all time)</span></div><div class="kpi"><b>%s</b><span>Paid orders</span></div>
-<div class="kpi"><b>€%s</b><span>Forecast · 12 months (base)</span></div><div class="kpi"><b>€%s</b><span>Forecast · MRR month 12</span></div></div>
+<div class="kpi"><b>€%s</b><span>Placement fees (%d hires)</span></div><div class="kpi"><b>€%s</b><span>Forecast · 12 months (base)</span></div><div class="kpi"><b>€%s</b><span>Forecast · MRR month 12</span></div></div>
 <p class="muted">Forecast assumptions live in data/pricing.json. Replace them with real conversion data as soon as you have it.</p>%s</div></section>""" % (
-        fmt_int(actual["pkr"]), fmt_int(actual["count"]), fmt_int(fc["total_revenue"]), fmt_int(fc["ending_mrr"]),
+        fmt_int(actual["pkr"]), fmt_int(actual["count"]), fmt_int(actual.get("placement_eur", 0)), placements, fmt_int(fc["total_revenue"]), fmt_int(fc["ending_mrr"]),
         _table(["Month", "#Revenue €", "#MRR €", "#Profit €", "#Cumulative €"], [rows])), active="/admin/revenue", admin=True, flash=flash)
+
+
+PIPE = ("proposed", "sent", "interviewing", "hired", "rejected")
+
+
+def employer_detail(req, roles, role, candidates, shortlist, share_url, fee_eur, flash=None):
+    role_opts = "".join('<option%s>%s</option>' % (" selected" if r["title"] == role else "", e(r["title"])) for r in roles)
+    in_list = {s["profile_token"] for s in shortlist}
+    cand_rows = "".join("<tr><td>%s<br><small class=\"muted\">%s</small></td><td class=\"num\">%d%%</td><td><small>%s</small></td><td><small>%s</small></td><td>%s</td></tr>" % (
+        e(c["profile"]["name"]), e(", ".join(c["profile"].get("skills", [])[:6])), c["match"]["overall"], e(c["match"]["verdict"].lower()),
+        e("; ".join(c["match"]["gaps"][:2]) or "—"),
+        "in shortlist" if c["token"] in in_list else _form("/admin/employers/%d/shortlist" % req["id"], "Add",
+            '<input type="hidden" name="profile" value="%s"><input type="hidden" name="role" value="%s"><input type="hidden" name="score" value="%d">' % (e(c["token"]), e(role), c["match"]["overall"])))
+        for c in candidates)
+    sl_rows = "".join("<tr><td>%s</td><td><small>%s</small></td><td class=\"num\">%s%%</td><td>%s</td><td>%s</td></tr>" % (
+        e(s["name"]), e(s["role"]), e(s["score"]), e(s["status"]),
+        _form("/admin/shortlists/%d/status" % s["id"], "Update", '<select name="status">%s</select>' % "".join(
+            '<option%s>%s</option>' % (" selected" if st == s["status"] else "", st) for st in PIPE))) for s in shortlist)
+    hired = sum(1 for s in shortlist if s["status"] == "hired")
+    return layout("Admin · " + req["company"], """<section><div class="wrap stack"><a href="/admin/employers">← Employer requests</a>
+<h1>%s</h1><p class="muted">%s · %s · wants %s · contact %s, %s %s</p><div class="card"><b>Roles requested</b><p style="white-space:pre-line;margin:6px 0 0">%s</p></div>
+<div class="kpis"><div class="kpi"><b>%d</b><span>In shortlist</span></div><div class="kpi"><b>%d</b><span>Hired</span></div><div class="kpi"><b>€%s</b><span>Placement fees earned (€%s each)</span></div></div>
+<h2>Shortlist</h2>%s<div class="row"><span class="muted">Employer link (private):</span><a class="mono" href="%s" target="_blank" rel="noopener">%s</a></div>
+<h2>Find candidates</h2><form method="get" class="row"><label style="min-width:260px">Role template<select name="role">%s</select></label><button class="btn small" type="submit">Rank candidates</button></form>
+<p class="muted">Only candidates who opted in to sharing their CV are listed. Scores support your judgement; you choose who goes on the shortlist.</p>%s</div></section>""" % (
+        e(req["company"]), e(req["sector"]), e(req["country"]), e(req["headcount"]), e(req["contact_name"]), e(req["email"]), e(req["phone"] or ""), e(req["roles"]),
+        len(shortlist), hired, format(hired * fee_eur, ","), fee_eur,
+        _table(["Candidate", "Role", "#Score", "Status", "Update"], [sl_rows] if sl_rows else [], "No candidates added yet."), e(share_url), e(share_url), role_opts,
+        _table(["Candidate", "#Match", "Verdict", "Gaps", ""], [cand_rows] if cand_rows else [], "No opted-in candidates yet. They appear when people complete /match and tick the sharing box.")),
+        active="/admin/employers", admin=True, flash=flash)

@@ -26,6 +26,7 @@ PERSONAL = {"orders": ["contact"], "profiles": ["contact"], "partners": ["email"
 CONSENT_TEXT = {
     "order": "I agree that MUSA processes the details I give here to prepare my report and contact me about it (GDPR Art. 6(1)(b)). Retention: 6 years for accounting records.",
     "profile": "I agree that MUSA stores my profile to generate my CV and job matches (GDPR Art. 6(1)(a)). I can delete it at any time; otherwise it is deleted after 12 months.",
+    "share": "Optional: MUSA may share my CV (without my contact details) with verified employers in Cyprus for roles I match. MUSA arranges any interview. I can withdraw this at any time by deleting my profile.",
     "partner": "I confirm I may share these business details for partner verification (KYB) and agree to be contacted about the partnership.",
     "employer": "I agree that MUSA uses these details to respond to our hiring request. Retention: 24 months.",
 }

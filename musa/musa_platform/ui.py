@@ -65,7 +65,7 @@ def head_meta(title, description, path, jsonld):
     return "".join(out)
 
 
-def layout(title, body, active="", description="", admin=False, flash=None, path=None, jsonld=None):
+def layout(title, body, active="", description="", admin=False, flash=None, path=None, jsonld=None, noindex=False):
     nav = "".join('<a href="%s"%s>%s</a>' % (h, ' aria-current="page"' if h == active else "", e(t)) for h, t in NAV)
     nav += '<a class="cta" href="/business">For business</a>'
     if admin:
@@ -94,7 +94,7 @@ def layout(title, body, active="", description="", admin=False, flash=None, path
 </div></footer></body></html>""" % (
         e(title + ("" if title.startswith("MUSA") else " · MUSA Corridor")), e(description or DEFAULT_DESC),
         "" if admin else head_meta(title, description or DEFAULT_DESC, path, jsonld),
-        '<meta name="robots" content="noindex">' if admin else "", "/admin" if admin else "/", " · ADMIN" if admin else "", nav, flash_html, body,
+        '<meta name="robots" content="noindex">' if (admin or noindex) else "", "/admin" if admin else "/", " · ADMIN" if admin else "", nav, flash_html, body,
         ('<li><a href="%s" target="_blank" rel="noopener">WhatsApp +%s</a></li>' % (e(wa_link("Assalam o alaikum, I have a question about an offer.")), e(whatsapp_number()))) if whatsapp_number() else "")
 
 
@@ -262,11 +262,11 @@ def match_page(results=None, profile=None, token=None, live=None, flash=None):
 <label>Education<input name="education" value="%s"></label>
 <label>Contact (optional)<span class="hint">Only if you want verified employers to reach you through MUSA</span><input name="contact" maxlength="80"></label>
 <label class="check"><input type="checkbox" name="relocation_ready" id="reloc"> <span>I am ready to relocate within 3 months</span></label>
-%s<button class="btn primary" type="submit">Match me</button></form>
+%s<label class="check"><input type="checkbox" name="share_ok" id="share-ok"> <span>%s</span></label><button class="btn primary" type="submit">Match me</button></form>
 <div>%s</div></div></section>""" % (
         e(p.get("name", "")), e(p.get("headline", "")), e(", ".join(p.get("skills", []))), e(p.get("years", "")),
         e(", ".join("%s:%s" % kv for kv in (p.get("languages") or {}).items())), e(", ".join(p.get("certifications", []))),
-        e(p.get("experience", "")), e(p.get("education", "")), consent_box("profile"),
+        e(p.get("experience", "")), e(p.get("education", "")), consent_box("profile"), e(CONSENT_TEXT["share"]),
         out or '<div class="card stack"><h3>What employers look for</h3><p class="muted">Construction: masonry, formwork, rebar. Hospitality: line cook, housekeeping, food service (English B1). Logistics: picking, forklift licence. Agriculture: harvesting. Care: caregiving and first aid.</p></div>'), active="/match", flash=flash)
 
 
@@ -281,7 +281,24 @@ def cv_page(p, token):
 <h2>Mobility</h2><p>%s</p></article></div></section>""" % (
         e(token), e(p.get("name")), e(p.get("headline")), e(", ".join(p.get("skills", [])) or "—"), e(p.get("experience") or "—"),
         e(p.get("years", 0)), e(langs), e(", ".join(p.get("certifications", [])) or "—"), e(p.get("education") or "—"),
-        "Ready to relocate to the EU within 3 months." if p.get("relocation_ready") else "Relocation timing to be agreed."))
+        "Ready to relocate to the EU within 3 months." if p.get("relocation_ready") else "Relocation timing to be agreed."), noindex=True)
+
+
+def shortlist_page(req, items):
+    cards = []
+    for it in items:
+        p = it["profile"]
+        langs = ", ".join("%s (%s)" % (k.upper(), v) for k, v in (p.get("languages") or {}).items()) or "—"
+        cards.append("""<article class="cv" style="padding:24px"><div class="row" style="justify-content:space-between"><h2 style="margin:0;font-size:1.3rem;font-family:var(--display);color:var(--ink);border:0;text-transform:none;letter-spacing:0">%s</h2>
+<span class="chip ok">Match %d%%</span></div><p class="muted" style="margin:4px 0 10px">%s · candidate ref <span class="mono">%s</span></p>
+<p><b>Skills:</b> %s</p><p><b>Experience:</b> %s years. %s</p><p><b>Languages:</b> %s · <b>Certificates:</b> %s</p><p class="muted">%s</p></article>""" % (
+            e(p.get("name")), it["score"], e(it["role"] or ""), e(it["profile_token"][:8].upper()), e(", ".join(p.get("skills", []))),
+            e(p.get("years", 0)), e((p.get("experience") or "")[:400]), e(langs), e(", ".join(p.get("certifications", [])) or "—"),
+            "Ready to relocate within 3 months." if p.get("relocation_ready") else "Relocation timing to be agreed."))
+    return layout("Shortlist for " + req["company"], """<section><div class="wrap stack" style="max-width:860px"><span class="eyebrow">Candidate shortlist · confidential</span>
+<h1 style="font-size:clamp(1.6rem,4vw,2.4rem)">Shortlist for %s</h1><p class="muted">%s · %s. Candidates agreed to share their CV with verified employers. Contact details are held by MUSA; reply with the candidate references you want to interview and we arrange it, together with your licensed agency, which handles the permit.</p>
+<div class="stack">%s</div><p class="muted">Placement fee is payable per candidate hired, as agreed in your service terms. This link is private: please do not forward it.</p></div></section>""" % (
+        e(req["company"]), e(req["sector"]), e(req["roles"][:200]), "".join(cards) or '<p class="muted">No candidates have been added yet.</p>'), noindex=True)
 
 
 def ask_page(question="", result=None, examples=()):
@@ -357,7 +374,7 @@ def order_page(o, cfg, methods, flash=None):
     return layout("Order " + o["ref"], """<section><div class="wrap stack" style="max-width:760px">
 <span class="eyebrow">Order</span><h1 class="mono" style="font-size:clamp(1.4rem,4vw,2rem)">%s</h1>
 <div class="row"><span class="chip">%s</span><span class="chip">%s</span></div>
-<p class="muted">Keep this page's link to check your order status.</p>%s</div></section>""" % (e(o["ref"]), e(p.get("name", o["product"])), e(status), pay), flash=flash)
+<p class="muted">Keep this page's link to check your order status.</p>%s</div></section>""" % (e(o["ref"]), e(p.get("name", o["product"])), e(status), pay), flash=flash, noindex=True)
 
 
 def business_page(products):

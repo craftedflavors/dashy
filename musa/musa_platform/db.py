@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS employer_requests (
   contact_name TEXT, email TEXT, phone TEXT, message TEXT, status TEXT DEFAULT 'new',
   created_at TEXT, consent_at TEXT
 );
+CREATE TABLE IF NOT EXISTS shortlists (
+  id INTEGER PRIMARY KEY, request_id INTEGER NOT NULL, token TEXT NOT NULL, role TEXT, profile_token TEXT NOT NULL,
+  score INTEGER, status TEXT DEFAULT 'proposed', created_at TEXT, updated_at TEXT,
+  UNIQUE(request_id, profile_token)
+);
 CREATE TABLE IF NOT EXISTS scans (
   id INTEGER PRIMARY KEY, created_at TEXT, colour TEXT, score INTEGER, traps TEXT, channel TEXT
 );

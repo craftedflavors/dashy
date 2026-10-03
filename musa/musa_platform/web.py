@@ -4,6 +4,7 @@ Run:  python -m musa_platform serve        (PORT, default 8080)
 """
 import json
 import mimetypes
+import urllib.parse
 import os
 import re
 import secrets
@@ -301,6 +302,15 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 return (self.text(xml, "application/xml") or True) if xml else None
             if path == "/robots.txt":
                 return self.text(seo.robots(), "text/plain") or True
+            m = re.fullmatch(r"/shortlist/([A-Za-z0-9_-]{16,64})", path)
+            if m:
+                rows = db.q("SELECT s.*, p.data FROM shortlists s JOIN profiles p ON p.token=s.profile_token WHERE s.token=? AND s.status!='rejected' ORDER BY s.score DESC", (m.group(1),))
+                if not rows:
+                    return None
+                req = db.q("SELECT * FROM employer_requests WHERE id=?", (rows[0]["request_id"],), one=True)
+                items = [dict(r, profile=json.loads(r["data"])) for r in rows if json.loads(r["data"]).get("share_ok")]
+                db.audit("employer", "shortlist.viewed", target=rows[0]["request_id"])
+                return self.html(ui.shortlist_page(req, items)) or True
             if path == "/agents":
                 return self.html(ui.agents_page(agents.REGISTRY)) or True
             if path == "/privacy":
@@ -419,6 +429,31 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             db.audit("employer", "employer.requested", target=rid)
             return self.html(ui.layout("Request received", '<section><div class="wrap stack" style="max-width:720px"><span class="stamp green">Received</span><h1>Thank you</h1><p>We will contact %s within 1 working day to confirm roles, timing and the licensed agency that will handle the permits.</p><a class="btn" href="/business">Back</a></div></section>' % ui.e(clean["contact_name"])))
 
+        def shortlist_token(self, rid):
+            row = db.q("SELECT token FROM shortlists WHERE request_id=? LIMIT 1", (rid,), one=True)
+            return row["token"] if row else secrets.token_urlsafe(18)
+
+        def employer_detail(self, rid, qs, fl):
+            req = db.q("SELECT * FROM employer_requests WHERE id=?", (rid,), one=True)
+            if not req:
+                return self.html(ui.not_found(), 404)
+            roles = [r for r in state.roles if r["sector"] == req["sector"]] or state.roles
+            role = qs.get("role") if any(r["title"] == qs.get("role") for r in roles) else roles[0]["title"]
+            tpl = next(r for r in roles if r["title"] == role)
+            cands = []
+            for p in db.q("SELECT token, data FROM profiles ORDER BY created_at DESC LIMIT 2000"):
+                prof = json.loads(p["data"])
+                if prof.get("share_ok"):
+                    cands.append({"token": p["token"], "profile": prof, "match": matching.match(prof, tpl)})
+            cands.sort(key=lambda c: -c["match"]["overall"])
+            shortlist = [dict(r, name=json.loads(r["data"]).get("name") if r["data"] else "[deleted]") for r in db.q(
+                "SELECT s.*, p.data FROM shortlists s LEFT JOIN profiles p ON p.token=s.profile_token WHERE s.request_id=? ORDER BY s.score DESC", (rid,))]
+            token = shortlist[0]["token"] if shortlist else None
+            base = ui.site_url() or ("http://" + (self.headers.get("Host") or "localhost"))
+            share = (base + "/shortlist/" + token) if token else "(add a candidate to create the link)"
+            fee = next((p["price"] for p in state.pricing["products"] if p["id"] == "employer_sourcing"), 400)
+            return self.html(admin_ui.employer_detail(req, roles, role, cands[:50], shortlist, share, fee, fl))
+
         # ---------- admin ----------
         def admin_get(self, path, qs):
             fl = self.flash(qs)
@@ -434,13 +469,19 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 return self.html(admin_ui.partners(db.q("SELECT * FROM partners ORDER BY status='pending' DESC, created_at DESC"), fl))
             if path == "/admin/employers":
                 return self.html(admin_ui.employers(db.q("SELECT * FROM employer_requests ORDER BY status='new' DESC, created_at DESC"), fl))
+            m = re.fullmatch(r"/admin/employers/(\d+)", path)
+            if m:
+                return self.employer_detail(int(m.group(1)), qs, fl)
             if path == "/admin/scout":
                 return self.html(admin_ui.scout(scout.load_sources(), db.q("SELECT * FROM scout_runs ORDER BY id DESC LIMIT 50"), fl))
             if path == "/admin/compliance":
                 return self.html(admin_ui.compliance(db.q("SELECT * FROM dsar ORDER BY status='open' DESC, at DESC"), db.q("SELECT * FROM audit ORDER BY id DESC LIMIT 100"), flash=fl))
             if path == "/admin/revenue":
                 actual = db.q("SELECT COALESCE(SUM(amount_pkr),0) pkr, COUNT(*) count FROM orders WHERE status IN ('paid','delivered')", one=True)
-                return self.html(admin_ui.revenue(revenue.forecast(12, "base", state.pricing), dict(actual), fl))
+                actual = dict(actual)
+                actual["placements"] = db.count("SELECT COUNT(*) FROM shortlists WHERE status='hired'")
+                actual["placement_eur"] = actual["placements"] * next((p["price"] for p in state.pricing["products"] if p["id"] == "employer_sourcing"), 400)
+                return self.html(admin_ui.revenue(revenue.forecast(12, "base", state.pricing), actual, fl))
             self.html(ui.not_found(), 404)
 
         def admin_post(self, path):
@@ -483,6 +524,30 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                         db.x("UPDATE partners SET status=?, decided_at=? WHERE id=?", ("rejected" if act == "reject" else "revoked", db.now_iso(), pid))
                     db.audit("admin", "partner." + act, target=pid)
                 return self.redirect("/admin/partners?m=%s" % {"approve": "approved", "reject": "rejected", "revoke": "revoked"}[act])
+            m = re.fullmatch(r"/admin/employers/(\d+)/shortlist", path)
+            if m:
+                rid = int(m.group(1))
+                prof = db.q("SELECT token FROM profiles WHERE token=?", ((f.get("profile") or "")[:64],), one=True)
+                req = db.q("SELECT * FROM employer_requests WHERE id=?", (rid,), one=True)
+                if prof and req:
+                    token = self.shortlist_token(rid)
+                    try:
+                        score = max(0, min(100, int(f.get("score") or 0)))
+                    except ValueError:
+                        score = 0
+                    db.x("INSERT OR IGNORE INTO shortlists (request_id, token, role, profile_token, score, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+                         (rid, token, (f.get("role") or "")[:120], prof["token"], score, db.now_iso(), db.now_iso()))
+                    db.audit("admin", "shortlist.add", target=rid)
+                return self.redirect("/admin/employers/%d?m=added&role=%s" % (rid, urllib.parse.quote(f.get("role") or "")))
+            m = re.fullmatch(r"/admin/shortlists/(\d+)/status", path)
+            if m:
+                st = f.get("status") if f.get("status") in admin_ui.PIPE else "proposed"
+                row = db.q("SELECT request_id FROM shortlists WHERE id=?", (int(m.group(1)),), one=True)
+                if row:
+                    db.x("UPDATE shortlists SET status=?, updated_at=? WHERE id=?", (st, db.now_iso(), int(m.group(1))))
+                    db.audit("admin", "shortlist." + st, target=m.group(1))
+                    return self.redirect("/admin/employers/%d" % row["request_id"])
+                return self.redirect("/admin/employers")
             m = re.fullmatch(r"/admin/employers/(\d+)/contacted", path)
             if m:
                 db.x("UPDATE employer_requests SET status='contacted' WHERE id=?", (int(m.group(1)),))

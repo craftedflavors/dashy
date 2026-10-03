@@ -134,7 +134,7 @@ def sitemap(guide_items, sectors):
 
 def robots():
     base = site_url()
-    lines = ["User-agent: *", "Disallow: /admin", "Disallow: /cv/", "Disallow: /order/", "Disallow: /api/", "Allow: /"]
+    lines = ["User-agent: *", "Disallow: /admin", "Disallow: /cv/", "Disallow: /order/", "Disallow: /shortlist/", "Disallow: /api/", "Allow: /"]
     if base:
         lines.append("Sitemap: %s/sitemap.xml" % base)
     return "\n".join(lines) + "\n"

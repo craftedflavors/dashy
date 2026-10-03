@@ -341,3 +341,34 @@ class Growth(unittest.TestCase):
             self.assertIn("ask us on WhatsApp", SRV.req("/check", {"text": "visa 100% guarantee"})[1])
         finally:
             os.environ.pop("MUSA_WHATSAPP", None)
+
+
+class Shortlists(unittest.TestCase):
+    def test_employer_shortlist_loop(self):
+        # two candidates, only one opts in to CV sharing
+        SRV.req("/match", {"name": "Sharer Mason", "skills": "mason, shuttering", "years": "7", "languages": "en:A2", "consent": "on", "share_ok": "on"})
+        SRV.req("/match", {"name": "Private Mason", "skills": "mason", "years": "9", "languages": "en:B1", "consent": "on"})
+        SRV.req("/business/employers", {"company": "Paphos Builders", "sector": "Construction", "roles": "3 masons", "contact_name": "D",
+                                        "email": "d@pb.cy", "headcount": "3", "consent": "on"})
+        rid = db.q("SELECT id FROM employer_requests WHERE company='Paphos Builders'", one=True)["id"]
+        code, page, _ = SRV.req("/admin/employers/%d" % rid, headers=AUTH)
+        self.assertEqual(code, 200)
+        self.assertIn("Sharer Mason", page)
+        self.assertNotIn("Private Mason", page)  # never shown without consent
+        tok = db.q("SELECT token FROM profiles WHERE name='Sharer Mason'", one=True)["token"]
+        self.assertEqual(SRV.req("/admin/employers/%d/shortlist" % rid, {"profile": tok, "role": "Mason / block layer", "score": "95"}, AUTH)[0], 303)
+        sl = db.q("SELECT * FROM shortlists WHERE request_id=?", (rid,), one=True)
+        code, body, _ = SRV.req("/shortlist/" + sl["token"])
+        self.assertEqual(code, 200)
+        self.assertIn("Sharer Mason", body)
+        self.assertIn('content="noindex"', body)
+        self.assertNotIn("Private Mason", body)
+        SRV.req("/admin/shortlists/%d/status" % sl["id"], {"status": "hired"}, AUTH)
+        self.assertIn("Placement fees (1 hires)", SRV.req("/admin/revenue", headers=AUTH)[1])
+        # candidate deletes their profile -> disappears from the employer link
+        SRV.req("/cv/%s/delete" % tok, b"")
+        self.assertEqual(SRV.req("/shortlist/" + sl["token"])[0], 404)
+
+    def test_shortlist_requires_admin_and_valid_token(self):
+        self.assertEqual(SRV.req("/admin/employers/1")[0], 401)
+        self.assertEqual(SRV.req("/shortlist/" + "x" * 24)[0], 404)

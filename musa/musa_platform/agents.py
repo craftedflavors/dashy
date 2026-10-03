@@ -149,5 +149,6 @@ def parse_profile_form(form):
         "experience": (form.get("experience") or "").strip()[:2000],
         "education": (form.get("education") or "").strip()[:800],
         "relocation_ready": form.get("relocation_ready") == "on",
+        "share_ok": form.get("share_ok") == "on",
         "visa_eligible": None,  # unknown until a real offer is verified; never assumed
     }
