@@ -29,6 +29,7 @@ DISCOVER → VERIFY → PRICE → CROSS-CHECK → CONTACT → NEGOTIATE → DOCU
 | **Skills matching** | `musa_sentinel/matching.py` | Matches a candidate to a job by skills, experience, language level (CEFR), certifications and readiness to relocate, and explains the score. If the candidate has no lawful visa route, the score is 0. |
 | **Outreach templates** | `musa_sentinel/outreach.py` | Due-diligence messages to OEPs, employers and embassies (§23–25), plus sales pitches to Cyprus agencies, OEPs and lawyers, and a Roman Urdu offer for workers. |
 | **Revenue forecaster** | `musa_sentinel/revenue.py`, `data/pricing.json` | Projects 12 months of revenue under conservative, base and aggressive assumptions, product by product. |
+| **Payments** | `data/payments.json`, `musa_sentinel/payments.py` | **REPORT** (Rs 4,500 / €15) and **DEEP** (Rs 22,500 / €79) replies include a reference code (e.g. `MUSA-B-4567-7F3A`) and every payment method you've configured: Stripe card link (reference passed as `client_reference_id`), JazzCash, Easypaisa, bank/Raast. **Card payments confirm automatically** through a signed Stripe webhook, and the bot messages the customer. A customer replying **PAID &lt;ref&gt;** only marks the payment as *claimed*. A human confirms wallet and bank payments with **Mark paid** in the admin view. |
 | **Leads page + admin** | `musa_sentinel/leadlog.py`, `user-data/musa-leads.yml` (generated) | A Dashy "MUSA Leads" page with report requests waiting, warm leads, scans, conversion rate, opt-outs, a follow-up queue and the top scam patterns of the week (your next reel topics). **It is public-safe on purpose:** Dashy publishes everything in `user-data/` as plain files, so numbers are masked to the last 4 digits. Full numbers, one-tap WhatsApp follow-up links and a **Done** button live only in the bot's `/admin/leads`, behind a password. |
 | **Command Centre** | `user-data/musa.yml` (generated) | A Dashy page with the revenue engine, official sources, partners ranked by score, and job channels. |
 | **WhatsApp bot** | `musa_sentinel/whatsapp.py` | A webhook for the Meta WhatsApp Cloud API. Workers forward an agent's message and get the scam check in English or Roman Urdu. Commands: PRICE, REPORT (sends your payment link), HELP, URDU/ENGLISH, STOP. Every webhook's signature is verified, Meta's duplicate deliveries are ignored, each sender is limited to 10 scans an hour, and opt-outs survive a restart. Each scan is logged as a lead in `data/leads.jsonl`, **without the message text**. |
@@ -51,7 +52,7 @@ python -m musa_sentinel draft partner_cy_agency contact="HR Team" company="MUSA"
 python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today" --lang ur   # bot reply, offline
 python -m musa_sentinel leads-page --leads samples/leads.jsonl   # preview the leads page with demo data
 python -m musa_sentinel build                       # regenerate Scam Shield data + Dashy page after editing data/*.json
-python -m unittest discover -s tests                # 57 tests
+python -m unittest discover -s tests                # 73 tests
 ```
 
 Add `--json` before the subcommand to get machine-readable output for n8n, Make or Zapier, e.g. `python -m musa_sentinel --json scan ...`.
@@ -63,7 +64,7 @@ Add `--json` before the subcommand to get machine-readable output for n8n, Make 
 1. **Meta app:** at developers.facebook.com, create an app of type *Business*, add the **WhatsApp** product, and add and verify your business phone number.
    Create a **system user** in Business Settings and generate a permanent token with `whatsapp_business_messaging`. Note the
    **Phone number ID** and the **App secret** (App settings → Basic).
-2. **Configure:** `cp .env.example .env` and fill in the values. Set `MUSA_PAYMENT_LINK` to your JazzCash, Easypaisa-merchant or Stripe link.
+2. **Configure:** `cp .env.example .env` and fill in the values. Then fill in `data/payments.json` (see *Taking payments* below).
 3. **Run it on an HTTPS host.** Meta only calls HTTPS webhooks. Pick one:
    - `docker build -t musa-whatsapp . && docker run -d -p 8088:8088 --env-file .env -v musa-data:/app/data musa-whatsapp`
      behind Caddy or nginx on a small Hetzner VPS (Caddy gives you HTTPS automatically).
@@ -78,6 +79,22 @@ Add `--json` before the subcommand to get machine-readable output for n8n, Make 
    `MUSA_ADMIN_URL=https://<your-host>/admin/leads python -m musa_sentinel leads-page` (cron it every 15 min if Dashy runs there too).
    It writes `user-data/musa-leads.yml` with masked numbers only. The copy in git is the empty state, so the public Netlify site never shows real leads.
 8. **Daily routine:** clear every 🔥 hot lead the same day. Nudge warm leads with the REPORT offer, but only inside 24 hours of their last message. Turn the "Top scam patterns" list into that week's Urdu reels.
+
+### Taking payments
+
+Fill in only what you have in `data/payments.json`. Methods with missing details are hidden, and the bot logs a warning at startup.
+
+| Method | What to fill in | Confirmation |
+|---|---|---|
+| **Card (Stripe Payment Links)** | Create one Payment Link per product in Stripe. Paste the URLs into `methods[card].urls`. Add a webhook endpoint `https://<host>/stripe/webhook` for `checkout.session.completed` and put its signing secret in `STRIPE_WEBHOOK_SECRET`. | **Automatic.** The reference comes back as `client_reference_id`; the lead turns 💰 paid and the customer gets a WhatsApp confirmation. |
+| **JazzCash / Easypaisa merchant** | `account` (merchant/till number) + `account_title` | Manual: the customer sends **PAID &lt;ref&gt;**, you check your merchant app, then click **Mark paid**. |
+| **Bank / Raast** | `account_title`, `bank`, `iban` and/or `raast_id` | Manual, same as wallets. |
+
+- **Use business accounts only.** Scam Shield tells workers never to pay a personal account (TRAP-003). If MUSA asked them to, it would teach the very habit that gets them scammed, and destroy trust.
+- **Stripe** doesn't onboard merchants based in Pakistan. Card links need a Stripe account for an entity in a supported country, such as a Cyprus company. Until then, wallets and Raast cover most customers.
+- Prices live in `products`. `MUSA_REPORT_PRICE_PKR` can override the basic report price without editing the file.
+- Admin flow: 🧾 **claimed** → check the money arrived → **Mark paid** → 💰 **paid** → deliver the report → **Delivered**.
+  The Dashy page shows reports to deliver, payments to verify and 7-day revenue, with numbers masked.
 
 Notes:
 - The bot only replies to people who message first, which keeps it inside WhatsApp's free 24-hour service window. Promotional messages *you* start
@@ -180,5 +197,5 @@ and matching core:
 1. ~~WhatsApp bot~~ ✅ and ~~leads page + admin~~ ✅ done.
 2. Lookup helpers for the BEOE OEP list and permissions that write `Claim` objects with `checked_on` dates.
 3. Persistent storage for cases and the graph (SQLite to start, then Supabase), so the reputation graph keeps building.
-4. Stripe or JazzCash payment links for the €15 and €79 reports.
+4. ~~Payment links for the €15 and €79 reports~~ ✅ done.
 5. KYB onboarding and the Sentinel partner score for the €499 Partner Platform tier.

@@ -15,6 +15,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from musa_sentinel import whatsapp  # noqa: E402
 
+EMPTY_PAYMENTS = {"products": {
+    "verify_basic": {"name": "Verify-Before-You-Pay report", "pkr": 4500, "eur": 15, "delivery": "48h"},
+    "verify_deep": {"name": "Deep due-diligence case file", "pkr": 22500, "eur": 79, "delivery": "5 working days"}},
+    "methods": []}
 SCAM = "Cyprus visa 100% guarantee. Pay today to my personal account, contract after payment."
 
 
@@ -33,7 +37,8 @@ class BotTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.leads = os.path.join(self.tmp.name, "leads.jsonl")
         self.sent = []
-        self.bot = whatsapp.Bot(send=lambda to, text: self.sent.append((to, text)), leads_file=self.leads)
+        self.bot = whatsapp.Bot(send=lambda to, text: self.sent.append((to, text)), leads_file=self.leads,
+                                payments_config=EMPTY_PAYMENTS)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -73,12 +78,13 @@ class BotTests(unittest.TestCase):
         self.bot.handle(payload("Report!", msg_id="c"))
         self.assertIn("Roman Urdu", self.sent[0][1])
         self.assertIn("muft", self.sent[1][1])
-        self.assertIn("Report ki darkhwast", self.sent[2][1])
+        self.assertIn("ki darkhwast mil gayi", self.sent[2][1])
         self.assertEqual([r["intent"] for r in self.leads_log()], ["price", "report_request"])
 
-    def test_payment_link_in_report_reply(self):
-        bot = whatsapp.Bot(send=lambda *a: None, leads_file=self.leads, payment_link="https://pay.example/r")
-        self.assertIn("https://pay.example/r", bot.handle(payload("REPORT"))[0]["text"])
+    def test_report_without_payment_methods_gives_reference(self):
+        text = self.bot.handle(payload("REPORT"))[0]["text"]
+        self.assertRegex(text, r"MUSA-B-4567-[0-9A-F]{4}")
+        self.assertIn("payment details shortly", text)
 
     def test_media_gets_text_request(self):
         out = self.bot.handle(payload(mtype="image"))

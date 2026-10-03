@@ -3,13 +3,22 @@
 # Full numbers live only in the bot's password-protected /admin/leads view.
 pageInfo:
   title: MUSA Leads
-  description: "Follow-up queue · generated 2026-10-03 16:52 UTC"
+  description: "Follow-up queue · generated 2026-10-03 16:57 UTC"
 sections:
 - name: Today's numbers
   icon: fas fa-tachometer-alt
   displayData:
     cols: 3
   items:
+  - title: "💰 0 paid report(s) to deliver"
+    description: "Paid — deliver within the promised time"
+    icon: fas fa-money-bill-wave
+  - title: "🧾 0 payment claim(s) to verify"
+    description: "Customer says PAID — confirm it reached the business account"
+    icon: fas fa-receipt
+  - title: "Revenue (7 days): 0"
+    description: "0 paid report(s) this week · 0 delivered in total"
+    icon: fas fa-coins
   - title: "🔥 0 report request(s) waiting"
     description: "Paid-report intent, not yet followed up — contact today"
     icon: fas fa-fire

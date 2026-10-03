@@ -10,8 +10,9 @@ Environment:
   WA_PHONE_NUMBER_ID    WhatsApp Business phone-number ID (not the phone number)
   WA_GRAPH_VERSION      Graph API version, default v23.0 — keep in step with your Meta app
   MUSA_LEADS_FILE       JSONL lead log, default musa/data/leads.jsonl
-  MUSA_REPORT_PRICE_PKR price quoted for the report, default 4500
-  MUSA_PAYMENT_LINK     optional payment link (JazzCash / Stripe) appended to REPORT replies
+  MUSA_PAYMENTS_FILE    payment methods & prices, default musa/data/payments.json
+  MUSA_REPORT_PRICE_PKR optional override of the basic report price
+  STRIPE_WEBHOOK_SECRET enables /stripe/webhook (auto-confirms card payments by reference)
   MUSA_ADMIN_PASSWORD   enables the private /admin/leads follow-up view (HTTP Basic auth, user "admin")
   PORT                  listen port, default 8088
 
@@ -30,17 +31,19 @@ import urllib.request
 from collections import OrderedDict, deque
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, parse_qsl, urlparse
 
-from . import DATA_DIR, leadlog
+from . import DATA_DIR, leadlog, payments
 from .traps import assess_message, load_traps
 
+REF_RE = re.compile(r"MUSA-[A-Z]-\d{1,4}-[0-9A-F]{4}")
 MAX_INBOUND_CHARS = 4000      # ignore anything longer — WhatsApp text caps at 4096 anyway
 MAX_REPLY_CHARS = 4000
 RATE_LIMIT = (10, 3600)       # at most 10 scans per sender per hour
 
 COMMANDS = {
     "report": "report", "verify": "report", "rpt": "report",
+    "deep": "report_deep", "full": "report_deep",
     "price": "price", "prices": "price", "fee": "price", "qeemat": "price",
     "help": "help", "menu": "help", "hi": "help", "hello": "help", "salam": "help",
     "assalam o alaikum": "help", "assalamualaikum": "help", "aoa": "help", "start": "help",
@@ -56,9 +59,13 @@ TEXT = {
                  "_I flag warning signs; I can't prove an offer is genuine. Only official records can._"),
         "price": ("*Services*\n• Scam check — free (this chat)\n• Verify-Before-You-Pay report — Rs {price}\n"
                   "  OEP licence + BEOE permission + employer registry + fee breakdown, 48h\n"
-                  "• Deep due-diligence file — Rs {deep}\n\nWe never charge workers a placement fee.\nReply *REPORT* to start."),
-        "report": ("✅ Report request received.\n\nPlease send:\n1. Agent / company name\n2. OEP licence number (if given)\n"
-                   "3. BEOE permission number (if given)\n4. Amount they asked for\n\nWe'll confirm the fee (Rs {price}) and start within 24h.{pay}"),
+                  "• Deep due-diligence file — Rs {deep}\n\nWe never charge workers a placement fee.\nReply *REPORT* or *DEEP* to start."),
+        "report": ("✅ *{product}* request received (Rs {price}, delivered within {delivery}).\n\nPlease send:\n1. Agent / company name\n2. OEP licence number (if given)\n"
+                   "3. BEOE permission number (if given)\n4. Amount they asked for"),
+        "pay_pending": "We'll send payment details shortly. Your reference: *{ref}*",
+        "paid_claim": "🙏 Thank you. We'll confirm as soon as payment *{ref}* reaches our business account, then start your report.",
+        "paid_claim_noref": "🙏 Thank you. Please reply *PAID* followed by your reference (e.g. PAID MUSA-B-1234-AB12) so we can match your payment.",
+        "paid_ok": "✅ Payment received for *{ref}* ({amount}). Your report has started — we'll deliver it here within {delivery}.",
         "stop": "You won't receive further messages. Send *HELP* any time to use Scam Shield again.",
         "lang": "Language set to English.",
         "media": "I can only check text. Please paste or forward the agent's message as text (not a photo or voice note).",
@@ -77,9 +84,13 @@ TEXT = {
                  "_Hum warning signs batate hain; offer asli hai ya nahi yeh sirf official records se pata chalta hai._"),
         "price": ("*Services*\n• Scam check — muft (yehi chat)\n• Verify-Before-You-Pay report — Rs {price}\n"
                   "  OEP licence + BEOE permission + employer registry + kharchon ki tafseel, 48 ghante\n"
-                  "• Mukammal due-diligence file — Rs {deep}\n\nHum worker se placement fee nahi lete.\nShuru karne ke liye *REPORT* likhein."),
-        "report": ("✅ Report ki darkhwast mil gayi.\n\nYeh bhejein:\n1. Agent / company ka naam\n2. OEP licence number (agar diya ho)\n"
-                   "3. BEOE permission number (agar diya ho)\n4. Kitne paise mange gaye\n\nHum fee (Rs {price}) confirm karke 24 ghante mein shuru karenge.{pay}"),
+                  "• Mukammal due-diligence file — Rs {deep}\n\nHum worker se placement fee nahi lete.\nShuru karne ke liye *REPORT* ya *DEEP* likhein."),
+        "report": ("✅ *{product}* ki darkhwast mil gayi (Rs {price}, {delivery} mein).\n\nYeh bhejein:\n1. Agent / company ka naam\n2. OEP licence number (agar diya ho)\n"
+                   "3. BEOE permission number (agar diya ho)\n4. Kitne paise mange gaye"),
+        "pay_pending": "Payment ki tafseel jald bhej di jayegi. Aap ka reference: *{ref}*",
+        "paid_claim": "🙏 Shukriya. Jaise hi *{ref}* ki payment hamare company account mein aayegi hum confirm karke report shuru kar denge.",
+        "paid_claim_noref": "🙏 Shukriya. *PAID* ke saath apna reference likhein (maslan PAID MUSA-B-1234-AB12) taa ke hum payment match kar sakein.",
+        "paid_ok": "✅ *{ref}* ki payment mil gayi ({amount}). Aap ki report shuru ho gayi hai — {delivery} mein yahin bhej di jayegi.",
         "stop": "Ab aap ko mazeed message nahi aayenge. Dobara istemal ke liye *HELP* likhein.",
         "lang": "Zuban Roman Urdu kar di gayi.",
         "media": "Hum sirf text check kar sakte hain. Agent ka message text ki shakal mein bhejein (photo ya voice note nahi).",
@@ -127,11 +138,11 @@ def format_scan_reply(result, lang, price_pkr):
 class Bot:
     """Transport-agnostic bot logic. `handle(payload)` returns the outbound messages it sent."""
 
-    def __init__(self, send=None, leads_file=None, price_pkr=None, payment_link=None, traps=None):
+    def __init__(self, send=None, leads_file=None, payments_config=None, traps=None):
         self.send = send or (lambda to, text: None)
         self.leads_file = leads_file or os.environ.get("MUSA_LEADS_FILE") or os.path.join(DATA_DIR, "leads.jsonl")
-        self.price_pkr = int(price_pkr or os.environ.get("MUSA_REPORT_PRICE_PKR", 4500))
-        self.payment_link = payment_link if payment_link is not None else os.environ.get("MUSA_PAYMENT_LINK", "")
+        self.payments = payments_config or payments.load_config()
+        self.price_pkr = self.payments["products"]["verify_basic"]["pkr"]
         self.traps = traps if traps is not None else load_traps()
         self.lang = {}                       # wa_id -> "en" | "ur"
         self.opted_out = set()
@@ -236,12 +247,24 @@ class Bot:
             return
         if cmd == "price":
             self._log(wa_id, "price")
-            self._reply(out, wa_id, t["price"].format(price=self.price_pkr, deep=self.price_pkr * 5))
+            self._reply(out, wa_id, t["price"].format(price=format(self.price_pkr, ","),
+                                                      deep=format(self.payments["products"]["verify_deep"]["pkr"], ",")))
             return
-        if cmd == "report":
-            self._log(wa_id, "report_request")
-            pay = ("\n\nPay: " + self.payment_link) if self.payment_link else ""
-            self._reply(out, wa_id, t["report"].format(price=self.price_pkr, pay=pay))
+        if cmd in ("report", "report_deep"):
+            product = "verify_deep" if cmd == "report_deep" else "verify_basic"
+            p = self.payments["products"][product]
+            ref = payments.new_reference(wa_id, product)
+            self._log(wa_id, "report_request", product=product, reference=ref, amount_pkr=p["pkr"])
+            pay = payments.instructions(self.payments, product, ref, lang) or t["pay_pending"].format(ref=ref)
+            self._reply(out, wa_id, t["report"].format(product=p["name"], price=format(p["pkr"], ","), delivery=p["delivery"]) + "\n\n" + pay)
+            return
+        if body.lower().startswith("paid"):
+            m = REF_RE.search(body.upper())
+            if m:
+                self._log(wa_id, "payment_claimed", reference=m.group(0))
+                self._reply(out, wa_id, t["paid_claim"].format(ref=m.group(0)))
+            else:
+                self._reply(out, wa_id, t["paid_claim_noref"])
             return
 
         if len(body) > MAX_INBOUND_CHARS:
@@ -254,7 +277,34 @@ class Bot:
         self._log(wa_id, "scan", forwarded=bool((msg.get("context") or {}).get("forwarded")),
                   colour=result["decision"]["colour"], score=result["decision"]["risk"]["score"],
                   traps=[h["id"] for h in result["hits"]])
-        self._reply(out, wa_id, format_scan_reply(result, lang, self.price_pkr))
+        self._reply(out, wa_id, format_scan_reply(result, lang, format(self.price_pkr, ",")))
+
+    # ---- payments ----
+    def confirm_payment(self, reference, method, amount=None, currency=None, event_id=None, confirmed_by="system"):
+        """Record a confirmed payment and tell the customer. Returns the wa_id, or None if unknown/duplicate."""
+        records = leadlog.load(self.leads_file)
+        if event_id and any(r.get("event_id") == event_id for r in records):
+            return None  # Stripe retries deliveries
+        req = next((r for r in reversed(records) if r.get("intent") == "report_request" and r.get("reference") == reference), None)
+        if not req:
+            return None
+        if any(r.get("intent") == "paid" and r.get("reference") == reference for r in records):
+            return None
+        product = self.payments["products"].get(req.get("product", "verify_basic"), self.payments["products"]["verify_basic"])
+        if amount is None:
+            amount, currency = req.get("amount_pkr", product["pkr"]), "PKR"
+        wa_id = req["wa_id"]
+        extra = {"reference": reference, "method": method, "amount": amount, "currency": currency,
+                 "product": req.get("product"), "confirmed_by": confirmed_by}
+        if event_id:
+            extra["event_id"] = event_id
+        self._log(wa_id, "paid", **extra)
+        lang = self.lang.get(wa_id, req.get("lang", "en"))
+        if isinstance(amount, float) and amount.is_integer():
+            amount = int(amount)
+        amount_txt = "%s %s" % (currency, format(amount, ","))
+        self.send(wa_id, TEXT[lang]["paid_ok"].format(ref=reference, amount=amount_txt, delivery=product["delivery"]))
+        return wa_id
 
 
 # ---------------- Cloud API transport ----------------
@@ -292,7 +342,7 @@ def check_basic_auth(header, password):
     return hmac.compare_digest(user.encode(), b"admin") & hmac.compare_digest(given.encode(), password.encode())
 
 
-def make_handler(bot, verify_token, app_secret, admin_password=None):
+def make_handler(bot, verify_token, app_secret, admin_password=None, stripe_secret=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "MUSA-WhatsApp/1.0"
 
@@ -340,14 +390,26 @@ def make_handler(bot, verify_token, app_secret, admin_password=None):
 
         def do_POST(self):
             path = urlparse(self.path).path
-            m = re.fullmatch(r"/admin/leads/(\d{6,20})/done", path)
+            if path == "/stripe/webhook":
+                return self._stripe()
+            m = re.fullmatch(r"/admin/leads/(\d{6,20})/(done|paid|delivered)", path)
             if m:
                 if not self._admin_ok():
                     return
                 origin = self.headers.get("Origin")
                 if origin and urlparse(origin).netloc != self.headers.get("Host"):
                     return self._send(403)  # cross-site form post
-                leadlog.mark_followed_up(m.group(1), bot.leads_file)
+                wa_id, action = m.groups()
+                if action == "done":
+                    leadlog.mark_followed_up(wa_id, bot.leads_file)
+                elif action == "delivered":
+                    leadlog.mark(wa_id, "delivered", bot.leads_file)
+                else:
+                    form = dict(parse_qsl(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 4096)).decode()))
+                    ref = form.get("reference", "")
+                    if not REF_RE.fullmatch(ref):
+                        return self._send(400, b"bad reference")
+                    bot.confirm_payment(ref, form.get("method") or "manual", confirmed_by="admin")
                 self.send_response(303)
                 self.send_header("Location", "/admin/leads")
                 self.send_header("Content-Length", "0")
@@ -369,6 +431,23 @@ def make_handler(bot, verify_token, app_secret, admin_password=None):
             self._send(200, b"EVENT_RECEIVED")
             threading.Thread(target=bot.handle, args=(payload,), daemon=True).start()
 
+        def _stripe(self):
+            if not stripe_secret:
+                return self._send(404)
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 1_000_000:
+                return self._send(413)
+            body = self.rfile.read(length)
+            if not payments.verify_stripe_signature(stripe_secret, body, self.headers.get("Stripe-Signature")):
+                return self._send(400)
+            try:
+                paid = payments.parse_stripe_event(json.loads(body))
+            except ValueError:
+                return self._send(400)
+            if paid:
+                bot.confirm_payment(paid["reference"], "card", paid["amount"], paid["currency"], paid["event_id"])
+            return self._send(200, b"ok")
+
         def log_message(self, fmt, *args):  # keep phone numbers out of access logs
             print("[whatsapp] %s %s" % (self.command, urlparse(self.path).path), flush=True)
 
@@ -383,7 +462,10 @@ def serve(port=None):
     bot = Bot(send=cloud_api_sender())
     port = int(port or os.environ.get("PORT", 8088))
     admin_password = os.environ.get("MUSA_ADMIN_PASSWORD")
-    httpd = ThreadingHTTPServer(("0.0.0.0", port), make_handler(bot, verify_token, app_secret, admin_password))
+    stripe_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
+    for w in payments.config_warnings(bot.payments):
+        print("[whatsapp] payments: " + w, flush=True)
+    httpd = ThreadingHTTPServer(("0.0.0.0", port), make_handler(bot, verify_token, app_secret, admin_password, stripe_secret))
     print("[whatsapp] MUSA Scam Shield bot listening on :%d  (webhook /webhook%s)"
           % (port, ", admin /admin/leads" if admin_password else ", admin disabled"), flush=True)
     httpd.serve_forever()
@@ -392,6 +474,6 @@ def serve(port=None):
 def simulate(text, lang="en"):
     """Offline: print what the bot would reply, without Meta credentials."""
     bot = Bot(leads_file=os.devnull)
-    bot.lang["sim"] = lang
-    msg = {"from": "sim", "id": "sim-%f" % time.time(), "type": "text", "text": {"body": text}}
+    bot.lang["920000000000"] = lang
+    msg = {"from": "920000000000", "id": "sim-%f" % time.time(), "type": "text", "text": {"body": text}}
     return [m["text"] for m in bot.handle({"entry": [{"changes": [{"value": {"messages": [msg]}}]}]})]
