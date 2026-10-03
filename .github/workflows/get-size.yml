@@ -8,14 +8,17 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
-    # Pin Node to the range allowed by package.json "engines" (runner default is newer)
+    # Match the Netlify/Docker builds: Node 20.11.1 and yarn --ignore-engines
+    # (runner default Node is newer than package.json "engines", and @achrinza/node-ipc rejects Node 20)
     - name: Setup Node
       uses: actions/setup-node@v4
       with:
-        node-version: 20
+        node-version: 20.11.1
     # Find and comment with compressed size
     - name: Get Compressed Size
       uses: preactjs/compressed-size-action@v2
+      env:
+        YARN_IGNORE_ENGINES: 'true'
       with:
         repo-token: ${{ secrets.BOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
         pattern: './dist/**/*.{js,css,html}'
