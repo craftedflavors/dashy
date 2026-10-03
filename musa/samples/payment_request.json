@@ -1,0 +1,22 @@
+{
+  "payment_id": "PAY-2026-000184",
+  "case_id": "CASE-CY-00001",
+  "amount": 1200,
+  "purpose": "Cyprus construction worker processing",
+  "recipient_name": "Muhammad Ali",
+  "recipient_type": "individual",
+  "recipient_identifiers": {"phone": "+92 300 1234567", "bank": "HBL 0012-3456789-01"},
+  "payment_class": "P5",
+  "has_invoice": false,
+  "has_receipt": false,
+  "cash_only": false,
+  "deadline_pressure": true,
+  "refund_terms_defined": false,
+  "cost_items": [
+    {"label": "Entry permit fee", "amount": 300, "category": "A", "status": "OFFICIAL", "source": "CRMD fee page", "checked_on": "2026-10-01"},
+    {"label": "Medical", "amount": 100, "category": "B", "status": "CONTRACTUAL", "recipient": "GAMCA-listed centre"},
+    {"label": "Service fee", "amount": 600, "category": "C", "status": "RECRUITER_CLAIMED"},
+    {"label": "Embassy appointment fee", "amount": 200, "category": "F", "status": "UNKNOWN"}
+  ],
+  "case_evidence": {"oep_verified": false, "employer_verified": false}
+}

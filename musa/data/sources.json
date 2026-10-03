@@ -1,0 +1,19 @@
+{
+  "_comment": "Scout sources. Every source ships DISABLED. Before enabling one: (1) read the site's terms of use - many job boards forbid automated collection; (2) prefer an official RSS/JSON feed or partner API where one exists; (3) Scout always honours robots.txt and waits between requests. types: rss | atom | jsonfeed | html-links. tier follows the MUSA trust hierarchy (0 = government ... 5 = social). Nothing Scout ingests is marked verified - a human does that in /admin.",
+  "sources": [
+    {"id": "beoe-foreign-jobs", "name": "BEOE Foreign Jobs", "type": "html-links", "tier": 0, "enabled": false,
+     "url": "https://beoe.gov.pk/foreign-jobs", "must_contain": ["cyprus"], "default_country": "Cyprus",
+     "note": "Official Pakistan government listings. The site has used Cloudflare challenges, which block automated fetches - if runs fail, record permissions manually in /admin."},
+    {"id": "seasonaljobs-cyprus", "name": "SeasonalJobsInEurope", "type": "html-links", "tier": 4, "enabled": false,
+     "url": "https://seasonaljobsineurope.com", "must_contain": ["cyprus"], "default_country": "Cyprus",
+     "note": "Check terms of use first; prefer asking them for a partner feed."},
+    {"id": "carierista", "name": "Carierista", "type": "html-links", "tier": 4, "enabled": false,
+     "url": "https://www.carierista.com/jobs", "must_contain": ["construction", "hotel", "warehouse", "driver", "chef", "cook", "cleaner"], "default_country": "Cyprus",
+     "note": "Check terms of use first."},
+    {"id": "cypruswork", "name": "CyprusWork", "type": "html-links", "tier": 4, "enabled": false,
+     "url": "https://www.cypruswork.com", "must_contain": ["construction", "hotel", "warehouse", "driver", "chef", "cook", "cleaner"], "default_country": "Cyprus",
+     "note": "Check terms of use first."},
+    {"id": "custom-feed", "name": "Your partner feed", "type": "rss", "tier": 2, "enabled": false, "url": "",
+     "note": "Paste an RSS/Atom URL from a licensed partner agency (best source: permission-based and complete)."}
+  ]
+}

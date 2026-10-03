@@ -1,0 +1,13 @@
+{"at": "2026-10-02T06:00:00+00:00", "wa_id": "923000000101", "intent": "scan", "lang": "en", "colour": "RED", "score": 70, "traps": ["TRAP-001", "TRAP-003"], "forwarded": true}
+{"at": "2026-10-02T07:00:00+00:00", "wa_id": "923000000101", "intent": "price", "lang": "en"}
+{"at": "2026-10-02T08:00:00+00:00", "wa_id": "923000000101", "intent": "report_request", "lang": "en"}
+{"at": "2026-10-02T16:00:00+00:00", "wa_id": "923000000202", "intent": "scan", "lang": "ur", "colour": "RED", "score": 60, "traps": ["TRAP-006"]}
+{"at": "2026-10-02T17:00:00+00:00", "wa_id": "923000000202", "intent": "price", "lang": "ur"}
+{"at": "2026-10-03T02:00:00+00:00", "wa_id": "923000000303", "intent": "scan", "lang": "en", "colour": "AMBER", "score": 10, "traps": ["TRAP-013"]}
+{"at": "2026-10-03T04:00:00+00:00", "wa_id": "923000000404", "intent": "scan", "lang": "en", "colour": "RED", "score": 45, "traps": ["TRAP-001", "TRAP-002"]}
+{"at": "2026-10-03T05:00:00+00:00", "wa_id": "923000000404", "intent": "report_request", "lang": "en"}
+{"at": "2026-10-03T06:00:00+00:00", "wa_id": "923000000404", "intent": "followed_up", "lang": "en"}
+{"at": "2026-10-03T07:00:00+00:00", "wa_id": "923000000505", "intent": "scan", "lang": "en", "colour": "RED", "score": 20, "traps": ["TRAP-003"]}
+{"at": "2026-10-03T08:00:00+00:00", "wa_id": "923000000505", "intent": "opt_out", "lang": "en"}
+{"at": "2026-10-03T10:00:00+00:00", "wa_id": "923000000606", "intent": "scan", "lang": "ur", "colour": "RED", "score": 85, "traps": ["TRAP-012", "TRAP-001"]}
+{"at": "2026-10-03T11:00:00+00:00", "wa_id": "923000000606", "intent": "report_request", "lang": "ur"}

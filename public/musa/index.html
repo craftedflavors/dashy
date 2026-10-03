@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MUSA Scam Shield</title>
+<meta name="description" content="Check a Cyprus / Europe job offer for scam warning signs before you pay any agent. Free, instant, private — nothing you paste leaves your phone.">
+<style>
+  :root {
+    --bg: #f6f5f1; --surface: #ffffff; --ink: #14212b; --muted: #5b6770; --line: #dcdcd4;
+    --brand: #0b3d5c; --brand-ink: #ffffff; --accent: #c65d3a;
+    --green: #2d7d5a; --amber: #b7791f; --red: #b23a48; --black: #2b2133;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f171d; --surface: #17222b; --ink: #e8edf0; --muted: #9aa8b2; --line: #2a3843;
+      --brand: #5fa8d3; --brand-ink: #0f171d; --accent: #e08a68;
+      --green: #4fbf8b; --amber: #e0a645; --red: #e2707d; --black: #b9a6cc;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f171d; --surface: #17222b; --ink: #e8edf0; --muted: #9aa8b2; --line: #2a3843;
+    --brand: #5fa8d3; --brand-ink: #0f171d; --accent: #e08a68;
+    --green: #4fbf8b; --amber: #e0a645; --red: #e2707d; --black: #b9a6cc;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
+  header { padding: 28px 0 8px; }
+  .brand { font-weight: 700; letter-spacing: .04em; color: var(--brand); font-size: 14px; text-transform: uppercase; }
+  h1 { font-size: clamp(28px, 6vw, 40px); line-height: 1.15; margin: 10px 0 8px; }
+  .lede { color: var(--muted); margin: 0 0 18px; }
+  .lang { float: right; }
+  button, .btn { font: inherit; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 8px 14px; cursor: pointer; }
+  .primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 600; padding: 12px 20px; }
+  .cta { display: inline-block; text-decoration: none; background: var(--green); color: #fff; border: 0; font-weight: 600; padding: 12px 20px; border-radius: var(--radius); }
+  textarea { width: 100%; min-height: 150px; font: inherit; padding: 12px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); color: var(--ink); resize: vertical; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; margin: 16px 0; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .verdict { border-left: 6px solid var(--muted); }
+  .verdict h2 { margin: 0 0 4px; font-size: 22px; }
+  .v-RED { border-left-color: var(--red); } .v-RED h2 { color: var(--red); }
+  .v-AMBER { border-left-color: var(--amber); } .v-AMBER h2 { color: var(--amber); }
+  .v-BLACK { border-left-color: var(--black); }
+  .meter { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 10px 0; }
+  .meter > span { display: block; height: 100%; background: var(--red); }
+  .hit { border-top: 1px solid var(--line); padding: 12px 0; }
+  .hit:first-of-type { border-top: 0; }
+  .sev { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+  .sev-critical, .sev-high { color: var(--red); } .sev-medium { color: var(--amber); } .sev-low { color: var(--muted); }
+  .quote { font-size: 14px; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .price { font-size: 26px; font-weight: 700; }
+  ol.steps { padding-left: 20px; } ol.steps li { margin: 6px 0; }
+  footer { padding: 24px 0 40px; color: var(--muted); font-size: 13px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <button class="lang" id="langBtn" type="button">اردو / Roman Urdu</button>
+    <div class="brand">MUSA Scam Shield</div>
+    <h1 data-en="Paying an agent for a Cyprus or Europe job? Check first." data-ur="Cyprus ya Europe job ke liye agent ko paisa de rahe hain? Pehle check karein.">Paying an agent for a Cyprus or Europe job? Check first.</h1>
+    <p class="lede" data-en="Paste the agent's WhatsApp message, ad or offer letter. We highlight known scam warning signs instantly. Nothing leaves your phone." data-ur="Agent ka WhatsApp message, ad ya offer letter yahan paste karein. Hum foran dhoke ke nishan dikhayenge. Aap ka data aap ke phone se bahar nahi jata.">Paste the agent's WhatsApp message, ad or offer letter. We highlight known scam warning signs instantly. Nothing leaves your phone.</p>
+  </header>
+
+  <section class="card">
+    <label for="msg" class="muted" data-en="Agent's message" data-ur="Agent ka message">Agent's message</label>
+    <textarea id="msg" placeholder="e.g. Cyprus construction visa 100% guarantee. Total package 9 lakh. Pay today, only 3 seats left…"></textarea>
+    <div class="row">
+      <button class="primary" id="scanBtn" type="button" data-en="Check for warning signs" data-ur="Warning signs check karein">Check for warning signs</button>
+      <button id="exampleBtn" type="button" data-en="Try an example" data-ur="Misaal dekhein">Try an example</button>
+    </div>
+  </section>
+
+  <section id="result" hidden>
+    <div class="card verdict" id="verdict">
+      <h2 id="vTitle"></h2>
+      <div class="meter"><span id="vMeter"></span></div>
+      <p id="vText" class="muted"></p>
+    </div>
+    <div class="card" id="hits"></div>
+    <div class="card">
+      <h3 style="margin-top:0" data-en="Get it verified before you pay" data-ur="Payment se pehle verify karwayein">Get it verified before you pay</h3>
+      <p class="muted" data-en="A clean scan does not mean an offer is genuine — only checking official records can. Our Verify-Before-You-Pay report checks the OEP licence and BEOE permission, the employer's company registration, and separates government fees from agent fees. Written report within 48 hours." data-ur="Saaf scan ka matlab yeh nahi ke offer asli hai — sirf official records se pata chalta hai. Hamari report OEP licence, BEOE permission, employer company registration check karti hai aur government fee ko agent fee se alag karti hai. 48 ghante mein likhi hui report.">A clean scan does not mean an offer is genuine — only checking official records can. Our Verify-Before-You-Pay report checks the OEP licence and BEOE permission, the employer's company registration, and separates government fees from agent fees. Written report within 48 hours.</p>
+      <a class="cta" id="waBtn" href="#" target="_blank" rel="noopener" data-en="Get my report on WhatsApp" data-ur="WhatsApp par report mangwayein">Get my report on WhatsApp</a>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3 style="margin-top:0" data-en="The 5 rules that protect your money" data-ur="Aap ke paise ki hifazat ke 5 usool">The 5 rules that protect your money</h3>
+    <ol class="steps">
+      <li data-en="Ask for the OEP licence number and BEOE permission number — check them on beoe.gov.pk yourself." data-ur="OEP licence number aur BEOE permission number lein — khud beoe.gov.pk par check karein.">Ask for the OEP licence number and BEOE permission number — check them on beoe.gov.pk yourself.</li>
+      <li data-en="Contract first, payment second. Never the other way round." data-ur="Pehle contract, phir payment. Kabhi ulta nahi.">Contract first, payment second. Never the other way round.</li>
+      <li data-en="Pay companies, not personal accounts — and get an official receipt every time." data-ur="Company ko payment karein, zaati account ko nahi — aur har dafa raseed lein.">Pay companies, not personal accounts — and get an official receipt every time.</li>
+      <li data-en="No one can guarantee a visa. Only the immigration authority decides." data-ur="Koi visa ki guarantee nahi de sakta. Faisla sirf immigration authority karti hai.">No one can guarantee a visa. Only the immigration authority decides.</li>
+      <li data-en="Never travel on a visit visa to work. It leads to deportation and bans." data-ur="Kaam ke liye visit visa par kabhi na jayein. Deport aur ban hota hai.">Never travel on a visit visa to work. It leads to deportation and bans.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h3 data-en="Services" data-ur="Services">Services</h3>
+    <div class="grid" id="pricing"></div>
+    <p class="muted" data-en="We do not sell jobs, we take no commission from recruiters on your case, and we never charge workers a placement fee." data-ur="Hum job nahi bechte, aap ke case par kisi agent se commission nahi lete, aur worker se placement fee nahi lete.">We do not sell jobs, we take no commission from recruiters on your case, and we never charge workers a placement fee.</p>
+  </section>
+
+  <footer>
+    MUSA Scam Shield flags warning patterns; it is not legal advice and not proof that anyone is or is not a fraud. Always confirm with official sources:
+    <a href="https://beoe.gov.pk" target="_blank" rel="noopener">BEOE</a> ·
+    <a href="https://www.moi.gov.cy/moi/crmd/crmd.nsf" target="_blank" rel="noopener">Cyprus Civil Registry &amp; Migration</a> ·
+    <a href="https://www.mlsi.gov.cy/mlsi/dl/dl.nsf" target="_blank" rel="noopener">Cyprus Department of Labour</a>
+  </footer>
+</div>
+
+<script src="traps.js"></script>
+<script>
+// ---- configure before launch ----
+var CONFIG = {
+  whatsapp: "",            // e.g. "923001234567" — your WhatsApp Business number, digits only
+  reportPricePKR: 4500,
+  pkrPerEur: 300
+};
+var PRODUCTS = [
+  {en: "Scam Shield scan", ur: "Scam Shield scan", eur: 0, d_en: "Instant warning-sign check (this page).", d_ur: "Foran warning check (yehi page)."},
+  {en: "Verify-Before-You-Pay report", ur: "Verify-Before-You-Pay report", eur: 15, d_en: "OEP + BEOE permission + employer registry + fee breakdown. 48h.", d_ur: "OEP + BEOE permission + employer registry + kharchon ki tafseel. 48 ghante."},
+  {en: "Deep due-diligence case file", ur: "Mukammal due-diligence file", eur: 79, d_en: "Adds direct employer confirmation, work-permit reference check and contract review.", d_ur: "Employer se direct tasdeeq, work permit reference aur contract review."},
+  {en: "EU-format CV + job match", ur: "EU CV + job match", eur: 10, d_en: "Europass-style CV and match score against current Cyprus demand.", d_ur: "Europass CV aur Cyprus ki demand ke mutabiq match score."}
+];
+var EXAMPLE = "Assalam o alaikum brother. Cyprus construction visa 100% guarantee hai. Total package 9 lakh rupees. Embassy appointment not available, we arrange it. Pay today, only 3 seats left. Send to my personal account, contract after payment. Contact: cyprusjobs.agent@gmail.com";
+
+var lang = "en";
+try { lang = localStorage.getItem("musa-lang") || "en"; } catch (e) {}
+
+function applyLang() {
+  document.documentElement.lang = lang === "ur" ? "ur" : "en";
+  document.querySelectorAll("[data-en]").forEach(function (el) { el.textContent = el.getAttribute("data-" + lang); });
+  renderPricing();
+  if (!document.getElementById("result").hidden) run();
+}
+
+function renderPricing() {
+  var html = PRODUCTS.map(function (p) {
+    var price = p.eur === 0 ? (lang === "ur" ? "Muft" : "Free")
+      : "€" + p.eur + " <span class='muted'>(~Rs " + (p.eur * CONFIG.pkrPerEur).toLocaleString() + ")</span>";
+    return "<div class='card' style='margin:0'><strong>" + p[lang] + "</strong><div class='price'>" + price + "</div><div class='muted'>" + p["d_" + lang] + "</div></div>";
+  }).join("");
+  document.getElementById("pricing").innerHTML = html;
+}
+
+var compiled = (window.MUSA_TRAPS || []).map(function (t) {
+  return Object.assign({}, t, { rx: t.patterns.map(function (p) { return new RegExp(p, "i"); }) });
+});
+var SEV = { critical: 0, high: 1, medium: 2, low: 3 };
+
+function scan(text) {
+  var hits = [];
+  compiled.forEach(function (t) {
+    for (var i = 0; i < t.rx.length; i++) {
+      var m = t.rx[i].exec(text);
+      if (m) {
+        hits.push({ t: t, ev: text.slice(Math.max(0, m.index - 30), m.index + m[0].length + 30).trim() });
+        break;
+      }
+    }
+  });
+  return hits.sort(function (a, b) { return SEV[a.t.severity] - SEV[b.t.severity]; });
+}
+
+function decide(hits) {
+  var R = window.MUSA_RISK, seen = {}, score = 0, hard = [];
+  hits.forEach(function (h) {
+    var s = h.t.signal;
+    if (seen[s]) return;
+    seen[s] = 1;
+    score += R.weights[s] || 0;
+    if (R.hard_stops[s]) hard.push(R.hard_stops[s]);
+  });
+  var band = R.bands.find(function (b) { return score >= b[0]; })[1];
+  return { colour: (hard.length || score >= 60) ? "RED" : "AMBER", score: score, band: band, hard: hard };
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+
+function run() {
+  var text = document.getElementById("msg").value.trim();
+  if (!text) return;
+  var hits = scan(text), d = decide(hits), ur = lang === "ur";
+  var box = document.getElementById("verdict");
+  box.className = "card verdict v-" + d.colour;
+  document.getElementById("vTitle").textContent = d.colour === "RED"
+    ? (ur ? "RUK JAYEIN — payment na karein" : "STOP — do not pay")
+    : hits.length ? (ur ? "HOLD — pehle verify karein" : "HOLD — verify before paying")
+    : (ur ? "Koi ma'loom dhoka pattern nahi mila" : "No known scam pattern found");
+  document.getElementById("vMeter").style.width = Math.min(100, d.score) + "%";
+  document.getElementById("vText").textContent = hits.length
+    ? (ur ? hits.length + " warning signs · risk " + d.score + " (" + d.band + ")" : hits.length + " warning sign(s) · risk " + d.score + " (" + d.band + ")") + (d.hard.length ? " · " + d.hard.join("; ") : "")
+    : (ur ? "Is ka matlab yeh nahi ke offer asli hai. Abhi kuch verify nahi hua." : "That does not mean the offer is genuine. Nothing has been verified yet.");
+  document.getElementById("hits").innerHTML = hits.length ? hits.map(function (h) {
+    return "<div class='hit'><span class='sev sev-" + h.t.severity + "'>" + h.t.severity + "</span> <strong>" + esc(h.t.name) + "</strong>"
+      + "<div class='quote'>“…" + esc(h.ev) + "…”</div><div>" + esc(ur ? (h.t.response_ur || h.t.response) : h.t.response) + "</div></div>";
+  }).join("") : "<span class='muted'>" + (ur ? "Phir bhi: OEP licence, BEOE permission aur contract zaroor check karein." : "Still check: OEP licence, BEOE permission and a written contract.") + "</span>";
+  var wa = "Assalam o alaikum, I want a Verify-Before-You-Pay report. Scam Shield found " + hits.length + " warning sign(s): "
+    + hits.map(function (h) { return h.t.id; }).join(", ");
+  var btn = document.getElementById("waBtn");
+  btn.href = CONFIG.whatsapp ? "https://wa.me/" + CONFIG.whatsapp + "?text=" + encodeURIComponent(wa) : "#";
+  document.getElementById("result").hidden = false;
+}
+
+document.getElementById("scanBtn").addEventListener("click", run);
+document.getElementById("exampleBtn").addEventListener("click", function () { document.getElementById("msg").value = EXAMPLE; run(); });
+document.getElementById("langBtn").addEventListener("click", function () {
+  lang = lang === "en" ? "ur" : "en";
+  try { localStorage.setItem("musa-lang", lang); } catch (e) {}
+  applyLang();
+});
+applyLang();
+</script>
+</body>
+</html>

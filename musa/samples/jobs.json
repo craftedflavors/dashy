@@ -1,0 +1,5 @@
+[
+ {"title": "Construction Mason — Limassol", "required_skills": ["masonry", "formwork"], "nice_skills": ["tiling"], "min_years": 3, "languages": {"en": "A2"}, "certifications": []},
+ {"title": "Hotel Line Cook — Paphos", "required_skills": ["line cook", "haccp"], "min_years": 2, "languages": {"en": "B1"}},
+ {"title": "Warehouse Forklift Operator — Larnaca", "required_skills": ["forklift operation"], "min_years": 1, "languages": {"en": "A2"}, "certifications": ["forklift licence"]}
+]

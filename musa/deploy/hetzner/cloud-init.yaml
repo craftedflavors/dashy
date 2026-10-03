@@ -1,0 +1,133 @@
+#cloud-config
+# MUSA Corridor — one-paste Hetzner Cloud setup (Ubuntu 24.04).
+# Hetzner Console → Servers → Add Server → "Cloud config": paste this file AFTER editing the 5 values marked CHANGE-ME.
+# Result: Docker + Caddy (automatic HTTPS) + firewall + nightly backups + nightly auto-update from GitHub.
+
+package_update: true
+package_upgrade: true
+packages: [docker.io, git, sqlite3, ufw, fail2ban, unattended-upgrades, caddy]
+
+write_files:
+  - path: /etc/musa/settings
+    permissions: "0600"
+    content: |
+      DOMAIN=musa.example.com                                  # CHANGE-ME: DNS A record must point to this server
+      ACME_EMAIL=you@example.com                               # CHANGE-ME: for HTTPS certificate notices
+      GIT_URL=https://github.com/craftedflavors/dashy.git      # CHANGE-ME if private: https://<token>@github.com/craftedflavors/dashy.git
+      GIT_BRANCH=master                                        # CHANGE-ME: master after the PR merges; until then claude/cyprus-visa-sponsorship-jobs-16xx4k
+      MUSA_ADMIN_PASSWORD=change-this-to-a-long-random-password # CHANGE-ME (letters/digits only, no # or spaces)
+  - path: /etc/musa/app.env
+    permissions: "0600"
+    content: |
+      # Runtime settings for the container. Fill in later and run: musa-update --force
+      MUSA_SCOUT_HOURS=6
+      ANTHROPIC_API_KEY=
+      WA_VERIFY_TOKEN=
+      WA_APP_SECRET=
+      WA_TOKEN=
+      WA_PHONE_NUMBER_ID=
+      STRIPE_WEBHOOK_SECRET=
+  - path: /usr/local/bin/musa-update
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Pull the latest code; rebuild and restart only when it changed (or with --force).
+      set -euo pipefail
+      source <(grep -v '^\s*#' /etc/musa/settings | sed 's/\s*#.*$//')
+      cd /opt/musa
+      if [ ! -d repo/.git ]; then git clone --depth 1 -b "$GIT_BRANCH" "$GIT_URL" repo; FORCE=1; fi
+      cd repo
+      OLD=$(git rev-parse HEAD)
+      git fetch --depth 1 origin "$GIT_BRANCH" && git reset --hard "origin/$GIT_BRANCH"
+      NEW=$(git rev-parse HEAD)
+      if [ "$OLD" != "$NEW" ] || [ "${1:-}" = "--force" ] || [ "${FORCE:-0}" = "1" ]; then
+        /usr/local/bin/musa-backup || true
+        docker build -t musa:latest musa
+        docker rm -f musa 2>/dev/null || true
+        docker run -d --name musa --restart unless-stopped -p 127.0.0.1:8080:8080 \
+          --env-file /etc/musa/app.env -e MUSA_ADMIN_PASSWORD="$MUSA_ADMIN_PASSWORD" \
+          -v musa-data:/data musa:latest
+        echo "musa updated to $NEW"
+      else
+        echo "musa already at $NEW"
+      fi
+  - path: /usr/local/bin/musa-backup
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Consistent SQLite backup of the live database; keeps 14 days.
+      set -euo pipefail
+      DIR=/var/backups/musa; mkdir -p "$DIR"
+      VOL=$(docker volume inspect musa-data -f '{{ .Mountpoint }}' 2>/dev/null) || exit 0
+      [ -f "$VOL/musa.db" ] || exit 0
+      STAMP=$(date +%F-%H%M)
+      sqlite3 "$VOL/musa.db" ".backup '$DIR/musa-$STAMP.db'"
+      [ -f "$VOL/leads.jsonl" ] && cp "$VOL/leads.jsonl" "$DIR/leads-$STAMP.jsonl"
+      find "$DIR" -type f -mtime +14 -delete
+  - path: /etc/systemd/system/musa-update.service
+    content: |
+      [Unit]
+      Description=MUSA auto-update from GitHub
+      After=network-online.target docker.service
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/musa-update
+  - path: /etc/systemd/system/musa-update.timer
+    content: |
+      [Unit]
+      Description=Nightly MUSA auto-update
+      [Timer]
+      OnCalendar=*-*-* 03:30:00
+      RandomizedDelaySec=900
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+  - path: /etc/systemd/system/musa-backup.service
+    content: |
+      [Unit]
+      Description=MUSA database backup
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/musa-backup
+  - path: /etc/systemd/system/musa-backup.timer
+    content: |
+      [Unit]
+      Description=MUSA backup every 6 hours
+      [Timer]
+      OnCalendar=*-*-* 00/6:15:00
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+  - path: /usr/local/bin/musa-caddy
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Write the Caddy reverse-proxy config from /etc/musa/settings and reload.
+      set -euo pipefail
+      source <(grep -v '^\s*#' /etc/musa/settings | sed 's/\s*#.*$//')
+      cat > /etc/caddy/Caddyfile <<CADDY
+      {
+        email ${ACME_EMAIL}
+      }
+      ${DOMAIN} {
+        encode zstd gzip
+        header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        reverse_proxy 127.0.0.1:8080 {
+          header_up X-Forwarded-For {remote_host}
+        }
+      }
+      CADDY
+      systemctl reload caddy || systemctl restart caddy
+
+runcmd:
+  - ufw default deny incoming
+  - ufw allow OpenSSH
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+  - systemctl enable --now docker fail2ban
+  - mkdir -p /opt/musa
+  - /usr/local/bin/musa-update --force
+  - /usr/local/bin/musa-caddy
+  - systemctl daemon-reload
+  - systemctl enable --now musa-update.timer musa-backup.timer

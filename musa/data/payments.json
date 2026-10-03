@@ -1,0 +1,15 @@
+{
+  "_comment": "Payment options the WhatsApp bot offers for paid reports. Leave a field empty to hide that method. RULE: every account here must be in the BUSINESS's registered name. Scam Shield tells workers never to pay a personal account (TRAP-003), so MUSA must never ask them to. Stripe does not onboard Pakistan-based merchants; card links need a Stripe account for a supported entity (e.g. Cyprus).",
+  "products": {
+    "verify_basic": {"name": "Verify-Before-You-Pay report", "pkr": 4500, "eur": 15, "delivery": "48h"},
+    "verify_deep": {"name": "Deep due-diligence case file", "pkr": 22500, "eur": 79, "delivery": "5 working days"}
+  },
+  "methods": [
+    {"id": "card", "type": "link", "label": "Card (Visa / Mastercard)",
+     "urls": {"verify_basic": "", "verify_deep": ""},
+     "reference_param": "client_reference_id"},
+    {"id": "jazzcash", "type": "wallet", "label": "JazzCash merchant", "account_title": "", "account": ""},
+    {"id": "easypaisa", "type": "wallet", "label": "Easypaisa merchant", "account_title": "", "account": ""},
+    {"id": "bank", "type": "bank", "label": "Bank transfer / Raast", "account_title": "", "bank": "", "iban": "", "raast_id": ""}
+  ]
+}

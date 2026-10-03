@@ -1,0 +1,33 @@
+{
+  "_comment": "Cyprus country adapter. Facts here are STRUCTURAL (who decides what). Fees, quotas and processing times are deliberately left null: they change, and must be read from the official source and stamped with checked_on before any payment decision.",
+  "country": "Cyprus (Republic of Cyprus — government-controlled areas)",
+  "code": "CY",
+  "last_verified": null,
+  "authorities": {
+    "immigration": {"name": "Civil Registry and Migration Department (CRMD), Ministry of Interior", "url": "https://www.moi.gov.cy/moi/crmd/crmd.nsf"},
+    "labour": {"name": "Department of Labour, Ministry of Labour & Social Insurance", "url": "https://www.mlsi.gov.cy/mlsi/dl/dl.nsf"},
+    "companies_registry": {"name": "Department of Registrar of Companies and Intellectual Property", "url": "https://efiling.drcor.mcit.gov.cy"},
+    "pakistan_side": {"name": "Bureau of Emigration & Overseas Employment (BEOE) / Protector of Emigrants", "url": "https://beoe.gov.pk"}
+  },
+  "routes": [
+    {"id": "CY-TCN-GENERAL", "name": "Third-country national employment (general / labour-market tested)",
+     "who_applies": "Employer in Cyprus, before the worker travels",
+     "key_gates": ["Employer registered with Social Insurance", "Labour-market test / Department of Labour approval for the sector", "Signed employment contract on the approved template", "Entry permit issued before travel"],
+     "fees_eur": null, "processing_time": null, "verify_at": "CRMD + Department of Labour"},
+    {"id": "CY-BFU", "name": "Companies of foreign interest (Business Facilitation Unit) — highly-paid / specialist staff",
+     "who_applies": "Qualifying company", "key_gates": ["Company qualifies under the BFU scheme", "Salary threshold met"], "fees_eur": null, "verify_at": "CRMD Business Facilitation Unit"},
+    {"id": "CY-STUDENT", "name": "Student entry & residence (university / college)",
+     "who_applies": "Institution + student", "key_gates": ["Admission from an accredited institution (CYQAA)", "Proof of funds", "Tuition payment terms"], "fees_eur": null, "verify_at": "CRMD + institution"},
+    {"id": "CY-FAMILY", "name": "Family reunification", "who_applies": "Sponsor resident in Cyprus", "key_gates": ["Sponsor residence status & duration", "Accommodation & means"], "fees_eur": null, "verify_at": "CRMD"}
+  ],
+  "pakistan_side_requirements": [
+    "Recruitment for overseas employment only through a BEOE-licensed OEP or a BEOE direct-employment permission",
+    "Protector of Emigrants registration before departure",
+    "Medical, insurance and emigration fees per BEOE schedule (verify current schedule)"
+  ],
+  "not_covered": [
+    "Northern Cyprus is outside the Republic of Cyprus immigration system. Offers 'for Cyprus' that route via Ercan/Turkey are a separate, higher-risk regime — never merge with CY cases."
+  ],
+  "known_fraud_patterns": ["TRAP-001", "TRAP-002", "TRAP-006", "TRAP-007", "TRAP-012", "TRAP-018"],
+  "typical_salary_range_eur_month": {"low": 800, "high": 2500, "source": "Job-board scan 2026-09 (Tier 4) — indicative only; check national minimum wage order"}
+}
