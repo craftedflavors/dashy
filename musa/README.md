@@ -29,6 +29,7 @@ DISCOVER → VERIFY → PRICE → CROSS-CHECK → CONTACT → NEGOTIATE → DOCU
 | **Skills matching** | `musa_sentinel/matching.py` | Matches a candidate to a job by skills, experience, language level (CEFR), certifications and readiness to relocate, and explains the score. If the candidate has no lawful visa route, the score is 0. |
 | **Outreach templates** | `musa_sentinel/outreach.py` | Due-diligence messages to OEPs, employers and embassies (§23–25), plus sales pitches to Cyprus agencies, OEPs and lawyers, and a Roman Urdu offer for workers. |
 | **Revenue forecaster** | `musa_sentinel/revenue.py`, `data/pricing.json` | Projects 12 months of revenue under conservative, base and aggressive assumptions, product by product. |
+| **Leads page + admin** | `musa_sentinel/leadlog.py`, `user-data/musa-leads.yml` (generated) | A Dashy "MUSA Leads" page with report requests waiting, warm leads, scans, conversion rate, opt-outs, a follow-up queue and the top scam patterns of the week (your next reel topics). **It is public-safe on purpose:** Dashy publishes everything in `user-data/` as plain files, so numbers are masked to the last 4 digits. Full numbers, one-tap WhatsApp follow-up links and a **Done** button live only in the bot's `/admin/leads`, behind a password. |
 | **Command Centre** | `user-data/musa.yml` (generated) | A Dashy page with the revenue engine, official sources, partners ranked by score, and job channels. |
 | **WhatsApp bot** | `musa_sentinel/whatsapp.py` | A webhook for the Meta WhatsApp Cloud API. Workers forward an agent's message and get the scam check in English or Roman Urdu. Commands: PRICE, REPORT (sends your payment link), HELP, URDU/ENGLISH, STOP. Every webhook's signature is verified, Meta's duplicate deliveries are ignored, each sender is limited to 10 scans an hour, and opt-outs survive a restart. Each scan is logged as a lead in `data/leads.jsonl`, **without the message text**. |
 | **Cyprus adapter** | `data/country_adapters/cyprus.json` | Records which authority decides what for each route. Fees and processing times are left **blank on purpose**: read them from the official source and record the date you checked. |
@@ -48,8 +49,9 @@ python -m musa_sentinel forecast --scenario conservative
 python -m musa_sentinel draft                       # list templates
 python -m musa_sentinel draft partner_cy_agency contact="HR Team" company="MUSA" sender="Musa" phone="+92..."
 python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today" --lang ur   # bot reply, offline
+python -m musa_sentinel leads-page --leads samples/leads.jsonl   # preview the leads page with demo data
 python -m musa_sentinel build                       # regenerate Scam Shield data + Dashy page after editing data/*.json
-python -m unittest discover -s tests                # 44 tests
+python -m unittest discover -s tests                # 57 tests
 ```
 
 Add `--json` before the subcommand to get machine-readable output for n8n, Make or Zapier, e.g. `python -m musa_sentinel --json scan ...`.
@@ -70,7 +72,12 @@ Add `--json` before the subcommand to get machine-readable output for n8n, Make 
 4. **Webhook:** in Meta → WhatsApp → Configuration, set the callback to `https://<your-host>/webhook`, set the verify token to `WA_VERIFY_TOKEN`,
    and subscribe to the **messages** field.
 5. **Test:** send "Hi" to your number, then forward a scam-looking offer.
-6. **Daily routine:** `data/leads.jsonl` lists everyone who scanned, asked for prices or asked for a report. Follow up on `report_request` the same day.
+6. **Admin view:** set `MUSA_ADMIN_PASSWORD`, then open `https://<your-host>/admin/leads` and log in as user `admin`. You get the follow-up queue with full numbers,
+   a **WhatsApp** button that pre-fills the right follow-up message, and **Done** to clear a lead. A new REPORT request from the same person puts them back in the queue.
+7. **Leads page in Dashy:** on the bot server, run
+   `MUSA_ADMIN_URL=https://<your-host>/admin/leads python -m musa_sentinel leads-page` (cron it every 15 min if Dashy runs there too).
+   It writes `user-data/musa-leads.yml` with masked numbers only. The copy in git is the empty state, so the public Netlify site never shows real leads.
+8. **Daily routine:** clear every 🔥 hot lead the same day. Nudge warm leads with the REPORT offer, but only inside 24 hours of their last message. Turn the "Top scam patterns" list into that week's Urdu reels.
 
 Notes:
 - The bot only replies to people who message first, which keeps it inside WhatsApp's free 24-hour service window. Promotional messages *you* start
@@ -170,7 +177,7 @@ and matching core:
 - **Hosting:** Hetzner (Germany) for GDPR. The Proton suite for staff email and document storage.
 
 ## Next build steps (highest value first)
-1. ~~WhatsApp bot~~ ✅ done (`whatsapp-serve`). Next: a small admin view of `leads.jsonl` on the Dashy page.
+1. ~~WhatsApp bot~~ ✅ and ~~leads page + admin~~ ✅ done.
 2. Lookup helpers for the BEOE OEP list and permissions that write `Claim` objects with `checked_on` dates.
 3. Persistent storage for cases and the graph (SQLite to start, then Supabase), so the reputation graph keeps building.
 4. Stripe or JazzCash payment links for the €15 and €79 reports.

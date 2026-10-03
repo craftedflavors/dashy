@@ -12,15 +12,18 @@ Environment:
   MUSA_LEADS_FILE       JSONL lead log, default musa/data/leads.jsonl
   MUSA_REPORT_PRICE_PKR price quoted for the report, default 4500
   MUSA_PAYMENT_LINK     optional payment link (JazzCash / Stripe) appended to REPORT replies
+  MUSA_ADMIN_PASSWORD   enables the private /admin/leads follow-up view (HTTP Basic auth, user "admin")
   PORT                  listen port, default 8088
 
 Privacy: message text is never written to disk. The lead log keeps the sender's WhatsApp ID
 (needed to deliver the report), timestamps, the trap IDs found and the intent.
 """
+import base64
 import hashlib
 import hmac
 import json
 import os
+import re
 import threading
 import time
 import urllib.request
@@ -29,7 +32,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import DATA_DIR
+from . import DATA_DIR, leadlog
 from .traps import assess_message, load_traps
 
 MAX_INBOUND_CHARS = 4000      # ignore anything longer — WhatsApp text caps at 4096 anyway
@@ -278,9 +281,32 @@ def cloud_api_sender(token=None, phone_number_id=None, version=None, timeout=10)
     return send
 
 
-def make_handler(bot, verify_token, app_secret):
+def check_basic_auth(header, password):
+    """True if the Authorization header carries admin:<password>. Disabled when no password is set."""
+    if not password or not header or not header.startswith("Basic "):
+        return False
+    try:
+        user, _, given = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return hmac.compare_digest(user.encode(), b"admin") & hmac.compare_digest(given.encode(), password.encode())
+
+
+def make_handler(bot, verify_token, app_secret, admin_password=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "MUSA-WhatsApp/1.0"
+
+        def _admin_ok(self):
+            if not admin_password:
+                self._send(404)
+                return False
+            if not check_basic_auth(self.headers.get("Authorization"), admin_password):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="MUSA admin", charset="UTF-8"')
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return False
+            return True
 
         def _send(self, code, body=b"", ctype="text/plain"):
             self.send_response(code)
@@ -293,6 +319,18 @@ def make_handler(bot, verify_token, app_secret):
             u = urlparse(self.path)
             if u.path == "/health":
                 return self._send(200, b"ok")
+            if u.path == "/admin/leads":
+                if not self._admin_ok():
+                    return
+                page = leadlog.admin_html(leadlog.summarise(leadlog.load(bot.leads_file)), price_pkr=bot.price_pkr)
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Frame-Options", "DENY")
+                body = page.encode("utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
             if u.path != "/webhook":
                 return self._send(404)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -301,7 +339,21 @@ def make_handler(bot, verify_token, app_secret):
             return self._send(403)
 
         def do_POST(self):
-            if urlparse(self.path).path != "/webhook":
+            path = urlparse(self.path).path
+            m = re.fullmatch(r"/admin/leads/(\d{6,20})/done", path)
+            if m:
+                if not self._admin_ok():
+                    return
+                origin = self.headers.get("Origin")
+                if origin and urlparse(origin).netloc != self.headers.get("Host"):
+                    return self._send(403)  # cross-site form post
+                leadlog.mark_followed_up(m.group(1), bot.leads_file)
+                self.send_response(303)
+                self.send_header("Location", "/admin/leads")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if path != "/webhook":
                 return self._send(404)
             length = int(self.headers.get("Content-Length") or 0)
             if length > 1_000_000:
@@ -330,8 +382,10 @@ def serve(port=None):
         raise RuntimeError("Set WA_VERIFY_TOKEN and WA_APP_SECRET")
     bot = Bot(send=cloud_api_sender())
     port = int(port or os.environ.get("PORT", 8088))
-    httpd = ThreadingHTTPServer(("0.0.0.0", port), make_handler(bot, verify_token, app_secret))
-    print("[whatsapp] MUSA Scam Shield bot listening on :%d  (webhook path /webhook)" % port, flush=True)
+    admin_password = os.environ.get("MUSA_ADMIN_PASSWORD")
+    httpd = ThreadingHTTPServer(("0.0.0.0", port), make_handler(bot, verify_token, app_secret, admin_password))
+    print("[whatsapp] MUSA Scam Shield bot listening on :%d  (webhook /webhook%s)"
+          % (port, ", admin /admin/leads" if admin_password else ", admin disabled"), flush=True)
     httpd.serve_forever()
 
 

@@ -10,6 +10,7 @@
   python -m musa_sentinel draft partner_oep contact=Ali company=MUSA sender=Musa phone=+92... price=99
   python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today"   # bot reply, offline
   python -m musa_sentinel whatsapp-serve --port 8088                 # live webhook (needs WA_* env)
+  python -m musa_sentinel leads-page --leads leads.jsonl --admin-url https://bot.example/admin/leads
   python -m musa_sentinel build                                      # regenerate public/musa/traps.js + Dashy page
 """
 import argparse
@@ -174,9 +175,26 @@ def build_dashy(path=None):
     return path
 
 
+def build_leads_page(path=None, leads_file=None, admin_url=None):
+    from . import leadlog
+    summary = leadlog.summarise(leadlog.load(leads_file))
+    admin_url = admin_url if admin_url is not None else os.environ.get("MUSA_ADMIN_URL", "")
+    path = path or os.path.join(os.path.dirname(ROOT), "user-data", "musa-leads.yml")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(leadlog.dashy_page(summary, admin_url))
+    return path, summary
+
+
+def cmd_leads_page(a):
+    path, s = build_leads_page(leads_file=a.leads, admin_url=a.admin_url)
+    print("wrote", path)
+    print("hot %d · warm %d · scans 7d %d · conversion %d%% · opt-outs %d" % (s["hot"], s["warm"], s["scans_7d"], s["conversion_pct"], s["opted_out"]))
+
+
 def cmd_build(a):
     print("wrote", build_web())
     print("wrote", build_dashy())
+    print("wrote", build_leads_page()[0])
 
 
 def cmd_wa_serve(a):
@@ -236,6 +254,11 @@ def main(argv=None):
     s.add_argument("text", nargs="+")
     s.add_argument("--lang", choices=["en", "ur"], default="en")
     s.set_defaults(fn=cmd_wa_sim)
+
+    s = sub.add_parser("leads-page", help="regenerate the public-safe Dashy 'MUSA Leads' page from the lead log")
+    s.add_argument("--leads", help="path to leads.jsonl (default MUSA_LEADS_FILE or data/leads.jsonl)")
+    s.add_argument("--admin-url", help="link to the bot's /admin/leads (default MUSA_ADMIN_URL)")
+    s.set_defaults(fn=cmd_leads_page)
 
     s = sub.add_parser("build", help="regenerate public/musa/traps.js and the Dashy page")
     s.set_defaults(fn=cmd_build)
