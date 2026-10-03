@@ -12,6 +12,10 @@ SKILL_ALIASES = {
     "mason": "masonry", "bricklayer": "masonry", "steel fixer": "rebar", "shuttering": "formwork",
     "chef de partie": "line cook", "commis": "line cook", "housekeeper": "housekeeping",
     "forklift": "forklift operation", "reach truck": "forklift operation", "pipe fitter": "plumbing",
+    "electrician": "electrical installation", "wiring": "electrical installation", "cook": "line cook", "chef": "line cook",
+    "waiter": "food service", "waitress": "food service", "picker": "picking", "order picking": "picking",
+    "driver": "driving", "farm work": "harvesting", "fruit picking": "harvesting", "cleaner": "cleaning",
+    "carer": "caregiving", "caregiver": "caregiving", "machine operator": "machine operation", "block laying": "masonry",
 }
 
 

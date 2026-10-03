@@ -1,0 +1,18 @@
+{
+  "_comment": "Role templates for the Matchmaker: what Cyprus employers in the shortage sectors typically ask for. Indicative requirements, not a specific vacancy.",
+  "roles": [
+    {"title": "Mason / block layer", "sector": "Construction", "required_skills": ["masonry"], "nice_skills": ["formwork", "plastering", "tiling"], "min_years": 2, "languages": {"en": "A2"}},
+    {"title": "Steel fixer / shuttering carpenter", "sector": "Construction", "required_skills": ["rebar", "formwork"], "nice_skills": ["blueprint reading"], "min_years": 2, "languages": {"en": "A2"}},
+    {"title": "Electrician", "sector": "Construction", "required_skills": ["electrical installation"], "nice_skills": ["solar pv", "wiring"], "min_years": 3, "languages": {"en": "A2"}, "certifications": ["trade certificate"]},
+    {"title": "Hotel line cook", "sector": "Hospitality", "required_skills": ["line cook"], "nice_skills": ["haccp", "grill", "pastry"], "min_years": 2, "languages": {"en": "B1"}},
+    {"title": "Housekeeping attendant", "sector": "Hospitality", "required_skills": ["housekeeping"], "nice_skills": ["laundry"], "min_years": 0, "languages": {"en": "A2"}},
+    {"title": "Waiter / F&B service", "sector": "Hospitality", "required_skills": ["food service"], "nice_skills": ["barista", "pos"], "min_years": 1, "languages": {"en": "B1"}},
+    {"title": "Warehouse operative", "sector": "Logistics", "required_skills": ["picking"], "nice_skills": ["forklift operation", "inventory"], "min_years": 0, "languages": {"en": "A2"}},
+    {"title": "Forklift operator", "sector": "Logistics", "required_skills": ["forklift operation"], "nice_skills": ["inventory"], "min_years": 1, "languages": {"en": "A2"}, "certifications": ["forklift licence"]},
+    {"title": "Delivery / HGV driver", "sector": "Logistics", "required_skills": ["driving"], "nice_skills": ["navigation"], "min_years": 2, "languages": {"en": "A2"}, "certifications": ["driving licence"]},
+    {"title": "Farm worker", "sector": "Agriculture", "required_skills": ["harvesting"], "nice_skills": ["greenhouse", "irrigation", "livestock"], "min_years": 0, "languages": {"en": "A1"}},
+    {"title": "Factory machine operator", "sector": "Manufacturing", "required_skills": ["machine operation"], "nice_skills": ["quality control", "packing"], "min_years": 1, "languages": {"en": "A2"}},
+    {"title": "Commercial cleaner", "sector": "Cleaning", "required_skills": ["cleaning"], "nice_skills": ["floor care"], "min_years": 0, "languages": {"en": "A1"}},
+    {"title": "Caregiver (elderly care)", "sector": "Care", "required_skills": ["caregiving"], "nice_skills": ["first aid"], "min_years": 1, "languages": {"en": "B1"}, "certifications": ["first aid"]}
+  ]
+}

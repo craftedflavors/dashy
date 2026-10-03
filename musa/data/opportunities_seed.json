@@ -1,0 +1,31 @@
+{
+  "_comment": "Research signals from the Sept 2026 search runs. These are LEADS (counts and listings seen on third-party pages), not verified vacancies. Scout keeps them for 45 days unless refreshed.",
+  "observed_on": "2026-09-12T12:00:00+00:00",
+  "groups": [
+    {"source": {"name": "SeasonalJobsInEurope", "tier": 4, "default_country": "Cyprus"},
+     "items": [
+      {"title": "Cyprus hospitality: 181 positions advertised as visa-sponsored (hotels, bars, restaurants)", "url": "https://seasonaljobsineurope.com", "sector": "Hospitality", "visa_signal": true},
+      {"title": "Cyprus services: 135 positions advertised as visa-sponsored (customer service)", "url": "https://seasonaljobsineurope.com", "sector": "General", "visa_signal": true},
+      {"title": "Cyprus logistics: 92 warehouse & distribution positions advertised as visa-sponsored", "url": "https://seasonaljobsineurope.com", "sector": "Logistics", "visa_signal": true},
+      {"title": "Cyprus agriculture: 77 harvest & farm positions advertised as visa-sponsored", "url": "https://seasonaljobsineurope.com", "sector": "Agriculture", "visa_signal": true},
+      {"title": "Cyprus manufacturing: 67 factory & assembly positions advertised as visa-sponsored", "url": "https://seasonaljobsineurope.com", "sector": "Manufacturing", "visa_signal": true},
+      {"title": "Cyprus construction: 43 site labour & skilled trades positions advertised as visa-sponsored", "url": "https://seasonaljobsineurope.com", "sector": "Construction", "visa_signal": true},
+      {"title": "Cyprus cleaning services: 17 positions advertised as visa-sponsored", "url": "https://seasonaljobsineurope.com", "sector": "Cleaning", "visa_signal": true},
+      {"title": "Cyprus food production: 13 positions advertised as visa-sponsored", "url": "https://seasonaljobsineurope.com", "sector": "Manufacturing", "visa_signal": true},
+      {"title": "Cyprus maritime: 5 positions advertised as visa-sponsored", "url": "https://seasonaljobsineurope.com", "sector": "Maritime", "visa_signal": true}
+     ]},
+    {"source": {"name": "BEOE Foreign Jobs (seen via search)", "tier": 0, "default_country": "Cyprus"},
+     "items": [
+      {"title": "Construction worker — Cyprus (BEOE permission 4349941 appeared in search; open it on BEOE before relying on it)", "url": "https://beoe.gov.pk/foreign-jobs", "sector": "Construction", "visa_signal": true},
+      {"title": "Hotel & HORECA workers — Cyprus-related BEOE listing (appeared in search; confirm on BEOE)", "url": "https://beoe.gov.pk/foreign-jobs", "sector": "Hospitality", "visa_signal": true}
+     ]},
+    {"source": {"name": "Cyprus job boards (scan)", "tier": 4, "default_country": "Cyprus"},
+     "items": [
+      {"title": "City of Dreams Mediterranean, Limassol — 56 open positions (hospitality & gaming)", "url": "https://www.linkedin.com/jobs/search/?keywords=City%20of%20Dreams%20Mediterranean", "employer": "City of Dreams Mediterranean", "location": "Limassol", "sector": "Hospitality"},
+      {"title": "CyprusWork — 108 construction listings (1,513 total) at last scan", "url": "https://www.cypruswork.com", "sector": "Construction"},
+      {"title": "Carierista — 75 construction & real-estate listings (1,159 total) at last scan", "url": "https://www.carierista.com", "sector": "Construction"},
+      {"title": "LinkedIn — Cyprus listings mentioning work-permit sponsorship", "url": "https://www.linkedin.com/jobs/search/?keywords=work%20permit%20sponsorship&location=Cyprus", "sector": "General", "visa_signal": true},
+      {"title": "Houseology Construction, Limassol — construction roles advertised", "url": "https://www.linkedin.com/jobs/search/?keywords=Houseology&location=Cyprus", "employer": "Houseology Construction", "location": "Limassol", "sector": "Construction"}
+     ]}
+  ]
+}

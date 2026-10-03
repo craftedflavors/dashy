@@ -14,6 +14,64 @@ DISCOVER → VERIFY → PRICE → CROSS-CHECK → CONTACT → NEGOTIATE → DOCU
 
 ---
 
+## The platform: MUSA Corridor (`musa_platform/`)
+
+One process serves everything: the public website, the business portal, the admin console, a JSON API, the WhatsApp bot,
+and the background agents. It uses only the Python standard library plus SQLite. The `anthropic` SDK is optional and powers the concierge's AI answers.
+
+```bash
+cd musa
+MUSA_ADMIN_PASSWORD=change-me python -m musa_platform serve      # http://localhost:8080 , admin at /admin (user: admin)
+python -m musa_platform scout        # run Scout once over enabled sources
+python -m musa_platform retention    # apply the data-retention policy now
+docker build -t musa . && docker run -d -p 8080:8080 --env-file .env -v musa-data:/data musa
+```
+
+| Audience | Pages | What they get | How it earns |
+|---|---|---|---|
+| Workers & families (B2C) | `/` `/check` `/report` `/order/<ref>` | Free Scam Shield, then a Verify-Before-You-Pay report (Rs 4,500) or deep file (Rs 22,500) with reference-coded payment | Report fees |
+| Job seekers | `/opportunities` `/match` `/cv/<token>` | Live board with source-trust labels, role matching with explained scores, a private EU-format CV | Builds the verified talent pool that employers pay for |
+| Students & families | `/ask` | Concierge that answers only from cited official sources (Claude Opus 5.5 when a key is set; rules otherwise) | Top of funnel → reports |
+| Employers in Cyprus (B2B) | `/business` `/business/employers` | Verified-candidate shortlists via licensed agencies | €400 per shortlisted candidate (employer-pays) |
+| Agencies, OEPs, consultancies, universities (B2B) | `/business/partners` `/partners/<slug>` | KYB application, public verified-badge page once approved, revocable | Badge €99/mo · Partner Platform Pro €499/mo · student commission |
+| Developers / partners | `/api/opportunities` `/api/scan` `/api/stats` | JSON feed of opportunities and the scam scanner | Future paid API tier |
+| Operator | `/admin/*` | Money-first work queue, orders, KYB approvals, employer callbacks, Scout runs, data requests, audit log, revenue forecast, WhatsApp leads | — |
+
+**Agents** (all listed publicly on `/agents` for EU AI Act transparency):
+- Sentinel checks messages for known scam patterns.
+- Scout fetches opportunities on a schedule (`MUSA_SCOUT_HOURS`), respects robots.txt, waits between requests and removes duplicates. Listings expire after 45 days unless they are seen again.
+- Verifier labels each listing by the trustworthiness of its source.
+- Matchmaker scores candidates against roles.
+- Concierge answers questions.
+- Payment Firewall checks payment requests.
+- Outreach Writer drafts messages.
+- Guardian handles retention, expiry and the audit trail.
+
+No agent marks anything verified, approves a person, or moves money. A human does that in `/admin`.
+
+**EU compliance built in:**
+- GDPR consent checkbox (with legal basis) on every form that collects personal data.
+- Privacy notice with retention periods that match the code (`compliance.RETENTION_DAYS`).
+- Data-subject requests (`/privacy/request`), with export and erase in the admin. Paid orders are anonymised rather than deleted, to keep accounting records.
+- Self-service CV deletion.
+- Scam text and concierge questions are never stored.
+- No tracking cookies.
+- Audit log of every admin and agent action.
+- AI answers labelled as AI-generated.
+- Matching treated as high-risk under Annex III of the EU AI Act: explainable, and decisions stay with a human.
+- Security headers (CSP, frame-deny, nosniff), rate-limited forms, same-origin check on admin actions.
+
+**Opportunity data.** The board starts with the September 2026 research signals (`data/opportunities_seed.json`), clearly labelled
+as leads. Every Scout source in `data/sources.json` ships **disabled**. Enable one only after reading that site's terms; many job boards
+forbid automated collection. The best sources are feeds from licensed partner agencies and listings you record by hand from BEOE (*Admin → Opportunities → Add*).
+
+**Scaling, honestly:**
+- One instance handles thousands of visitors a day (threaded server, SQLite in WAL mode). Put it behind Caddy or nginx for HTTPS and caching on a small EU VPS, for example Hetzner in Germany.
+- To run several instances behind a load balancer, move `db.py` to Postgres. All SQL lives in `db.py` and the callers, using portable syntax.
+- "Auto-update" here means: Scout refreshes listings on a schedule, Guardian expires and deletes old data daily, and your host redeploys on every push to the repo (Render, Fly.io, Railway and Coolify all support this).
+
+---
+
 ## What's in the box
 
 | Piece | Where | What it does |
@@ -52,7 +110,7 @@ python -m musa_sentinel draft partner_cy_agency contact="HR Team" company="MUSA"
 python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today" --lang ur   # bot reply, offline
 python -m musa_sentinel leads-page --leads samples/leads.jsonl   # preview the leads page with demo data
 python -m musa_sentinel build                       # regenerate Scam Shield data + Dashy page after editing data/*.json
-python -m unittest discover -s tests                # 73 tests
+python -m unittest discover -s tests                # 99 tests
 ```
 
 Add `--json` before the subcommand to get machine-readable output for n8n, Make or Zapier, e.g. `python -m musa_sentinel --json scan ...`.
@@ -66,10 +124,10 @@ Add `--json` before the subcommand to get machine-readable output for n8n, Make 
    **Phone number ID** and the **App secret** (App settings → Basic).
 2. **Configure:** `cp .env.example .env` and fill in the values. Then fill in `data/payments.json` (see *Taking payments* below).
 3. **Run it on an HTTPS host.** Meta only calls HTTPS webhooks. Pick one:
-   - `docker build -t musa-whatsapp . && docker run -d -p 8088:8088 --env-file .env -v musa-data:/app/data musa-whatsapp`
+   - `docker build -t musa . && docker run -d -p 8080:8080 --env-file .env -v musa-data:/data musa` (the bot is part of the platform: `/webhook` on the same host)
      behind Caddy or nginx on a small Hetzner VPS (Caddy gives you HTTPS automatically).
    - Or on any Python host: `python -m musa_sentinel whatsapp-serve`.
-   - To test from your laptop, `cloudflared tunnel --url http://localhost:8088` gives a temporary HTTPS URL.
+   - To test from your laptop, `cloudflared tunnel --url http://localhost:8080` gives a temporary HTTPS URL.
 4. **Webhook:** in Meta → WhatsApp → Configuration, set the callback to `https://<your-host>/webhook`, set the verify token to `WA_VERIFY_TOKEN`,
    and subscribe to the **messages** field.
 5. **Test:** send "Hi" to your number, then forward a scam-looking offer.
