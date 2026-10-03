@@ -47,6 +47,7 @@ docker build -t musa . && docker run -d -p 8080:8080 --env-file .env -v musa-dat
 - Structured data for Google (FAQ, article and organisation markup), canonical links and Open Graph tags, so links look right when shared on WhatsApp and Facebook.
 - `sitemap.xml` and `robots.txt`, built from `MUSA_SITE_URL`.
 - WhatsApp links on the footer, scan results and guides, from `MUSA_WHATSAPP`.
+- **Roman Urdu** home page and Scam Shield at `/ur` and `/ur/check`, with replies drawn from the Urdu text in the scam-pattern list, plus language switches on both versions.
 
 **Agents** (all listed publicly on `/agents` for EU AI Act transparency):
 - Sentinel checks messages for known scam patterns.
@@ -121,7 +122,7 @@ python -m musa_sentinel draft partner_cy_agency contact="HR Team" company="MUSA"
 python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today" --lang ur   # bot reply, offline
 python -m musa_sentinel leads-page --leads samples/leads.jsonl   # preview the leads page with demo data
 python -m musa_sentinel build                       # regenerate Scam Shield data + Dashy page after editing data/*.json
-python -m unittest discover -s tests                # 105 tests
+python -m unittest discover -s tests                # 106 tests
 ```
 
 Add `--json` before the subcommand to get machine-readable output for n8n, Make or Zapier, e.g. `python -m musa_sentinel --json scan ...`.

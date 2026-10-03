@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 from musa_sentinel import matching, payments, revenue, traps as traps_mod, whatsapp, leadlog
 
-from . import DATA_DIR, STATIC_DIR, admin_ui, agents, compliance, db, scout, seo, ui
+from . import DATA_DIR, STATIC_DIR, admin_ui, agents, compliance, db, scout, seo, ui, urdu
 
 FLASH = {
     "verified": ("ok", "Marked verified."), "flagged": ("ok", "Flagged."), "expired": ("ok", "Expired."), "added": ("ok", "Opportunity added."),
@@ -236,6 +236,11 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             if path == "/":
                 latest = db.q("SELECT * FROM opportunities WHERE status IN ('lead','signal','verified') ORDER BY (status='verified') DESC, source_tier ASC, found_at DESC LIMIT 6")
                 return self.html(ui.home(stats(), latest)) or True
+            if path == "/ur":
+                latest = db.q("SELECT * FROM opportunities WHERE status IN ('lead','signal','verified') ORDER BY (status='verified') DESC, source_tier ASC, found_at DESC LIMIT 4")
+                return self.html(urdu.home(stats(), latest)) or True
+            if path == "/ur/check":
+                return self.html(urdu.check()) or True
             if path == "/check":
                 return self.html(ui.check_page(EXAMPLE_SCAM, self.scan(EXAMPLE_SCAM, "web-example")) if qs.get("example") else ui.check_page()) or True
             if path == "/opportunities":
@@ -344,9 +349,10 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             f = self.form()
             if f is None:
                 return self._send(413)
-            if path == "/check":
+            if path in ("/check", "/ur/check"):
                 text = (f.get("text") or "")[:6000]
-                return self.html(ui.check_page(text, self.scan(text, "web") if text.strip() else None))
+                res = self.scan(text, "web-ur" if path.startswith("/ur") else "web") if text.strip() else None
+                return self.html(urdu.check(text, res) if path.startswith("/ur") else ui.check_page(text, res))
             if path == "/api/scan":
                 text = (f.get("text") or "")[:6000]
                 res = self.scan(text, "api")

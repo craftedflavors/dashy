@@ -372,3 +372,16 @@ class Shortlists(unittest.TestCase):
     def test_shortlist_requires_admin_and_valid_token(self):
         self.assertEqual(SRV.req("/admin/employers/1")[0], 401)
         self.assertEqual(SRV.req("/shortlist/" + "x" * 24)[0], 404)
+
+
+class RomanUrdu(unittest.TestCase):
+    def test_urdu_pages(self):
+        code, body, _ = SRV.req("/ur")
+        self.assertEqual(code, 200)
+        self.assertIn('lang="ur-Latn"', body)
+        self.assertIn("Agent ko paisa dene se pehle", body)
+        code, body, _ = SRV.req("/ur/check", {"text": "Visa 100% guarantee hai, aaj hi mere account mein paisa bhejo"})
+        self.assertEqual(code, 200)
+        self.assertIn("Ruk jayein", body)
+        self.assertIn("zaati", body)  # Urdu reply from the trap library
+        self.assertIn('href="/check"', SRV.req("/ur/check")[1])

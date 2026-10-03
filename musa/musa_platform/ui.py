@@ -65,7 +65,7 @@ def head_meta(title, description, path, jsonld):
     return "".join(out)
 
 
-def layout(title, body, active="", description="", admin=False, flash=None, path=None, jsonld=None, noindex=False):
+def layout(title, body, active="", description="", admin=False, flash=None, path=None, jsonld=None, noindex=False, lang="en"):
     nav = "".join('<a href="%s"%s>%s</a>' % (h, ' aria-current="page"' if h == active else "", e(t)) for h, t in NAV)
     nav += '<a class="cta" href="/business">For business</a>'
     if admin:
@@ -77,7 +77,7 @@ def layout(title, body, active="", description="", admin=False, flash=None, path
         kind, msg = flash
         flash_html = '<div class="wrap" style="padding-top:16px"><div class="flash %s" role="status">%s</div></div>' % ("err" if kind == "err" else "", e(msg))
     return """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<html lang="%s"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>%s</title><meta name="description" content="%s">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&family=Public+Sans:wght@400;500;600&display=swap">
@@ -88,10 +88,10 @@ def layout(title, body, active="", description="", admin=False, flash=None, path
 %s<main id="main">%s</main>
 <footer class="site"><div class="wrap">
 <div><b style="color:var(--ink)">MUSA Corridor</b><p>Verification-first help for work, study and hiring between Pakistan, Cyprus and the EU. We do not sell jobs or visas.</p></div>
-<ul><li><a href="/check">Scam Shield</a></li><li><a href="/opportunities">Opportunities</a></li><li><a href="/match">Match &amp; EU CV</a></li><li><a href="/ask">Ask the concierge</a></li></ul>
+<ul><li><a href="/check">Scam Shield</a></li><li><a href="/ur" hreflang="ur-Latn">Roman Urdu</a></li><li><a href="/opportunities">Opportunities</a></li><li><a href="/match">Match &amp; EU CV</a></li><li><a href="/ask">Ask the concierge</a></li></ul>
 <ul><li><a href="/business">For employers &amp; agencies</a></li><li><a href="/business/partners">Become a verified partner</a></li><li><a href="/business/employers">Request candidates</a></li><li><a href="/pricing">Pricing</a></li></ul>
 <ul>%s<li><a href="/privacy">Privacy (GDPR)</a></li><li><a href="/privacy/request">Your data rights</a></li><li><a href="/agents">AI &amp; automation transparency</a></li><li><a href="/terms">Terms</a></li></ul>
-</div></footer></body></html>""" % (
+</div></footer></body></html>""" % (lang,
         e(title + ("" if title.startswith("MUSA") else " · MUSA Corridor")), e(description or DEFAULT_DESC),
         "" if admin else head_meta(title, description or DEFAULT_DESC, path, jsonld),
         '<meta name="robots" content="noindex">' if (admin or noindex) else "", "/admin" if admin else "/", " · ADMIN" if admin else "", nav, flash_html, body,
@@ -184,7 +184,7 @@ def check_page(text="", result=None):
             stamp, e(msg), d["risk"]["score"], min(100, d["risk"]["score"]), d["risk"]["score"], e(d["risk"]["band"]), len(hits), items,
             (' or <a href="%s" target="_blank" rel="noopener">ask us on WhatsApp</a>' % e(wa_link("Assalam o alaikum, Scam Shield found %d warning sign(s): %s. I want a report." % (len(hits), ", ".join(h["id"] for h in hits))))) if whatsapp_number() else "")
     return layout("Scam Shield", """<section><div class="wrap split">
-<form class="stack" method="post" action="/check"><span class="eyebrow">Scam Shield</span><h1>Is this offer a scam?</h1>
+<form class="stack" method="post" action="/check"><div class="row" style="justify-content:space-between"><span class="eyebrow">Scam Shield</span><a class="chip" href="/ur/check" hreflang="ur-Latn">Roman Urdu mein</a></div><h1>Is this offer a scam?</h1>
 <p class="muted">Paste what the agent sent: WhatsApp message, ad or offer letter. English or Roman Urdu. We check it against 20 patterns from real cases. The text is processed and discarded, not stored.</p>
 <label for="text">Agent's message</label><textarea id="text" name="text" required>%s</textarea>
 <div class="row"><button class="btn copper" type="submit">Check for warning signs</button><a class="btn" href="/check?example=1">Try an example</a></div></form>

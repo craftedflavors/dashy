@@ -123,7 +123,7 @@ def sitemap(guide_items, sectors):
     if not base:
         return None
     today = datetime.now(timezone.utc).date().isoformat()
-    paths = ["/", "/check", "/opportunities", "/guides", "/match", "/ask", "/pricing", "/business", "/business/partners",
+    paths = ["/", "/ur", "/ur/check", "/check", "/opportunities", "/guides", "/match", "/ask", "/pricing", "/business", "/business/partners",
              "/business/employers", "/agents", "/privacy", "/terms"]
     paths += ["/guides/" + g["slug"] for g in guide_items] + ["/jobs/" + slugify(s) for s in sectors]
     paths += ["/opportunities/%d" % r["id"] for r in db.q("SELECT id FROM opportunities WHERE status IN ('signal','verified') ORDER BY id DESC LIMIT 500")]
