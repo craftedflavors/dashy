@@ -8,6 +8,11 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v2
+    # Pin Node to the range allowed by package.json "engines" (runner default is newer)
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
     # Find and comment with compressed size
     - name: Get Compressed Size
       uses: preactjs/compressed-size-action@v2
