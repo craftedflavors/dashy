@@ -8,6 +8,8 @@
   python -m musa_sentinel match samples/candidate.json samples/jobs.json
   python -m musa_sentinel forecast --scenario base --months 12
   python -m musa_sentinel draft partner_oep contact=Ali company=MUSA sender=Musa phone=+92... price=99
+  python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today"   # bot reply, offline
+  python -m musa_sentinel whatsapp-serve --port 8088                 # live webhook (needs WA_* env)
   python -m musa_sentinel build                                      # regenerate public/musa/traps.js + Dashy page
 """
 import argparse
@@ -177,6 +179,17 @@ def cmd_build(a):
     print("wrote", build_dashy())
 
 
+def cmd_wa_serve(a):
+    from . import whatsapp
+    whatsapp.serve(a.port)
+
+
+def cmd_wa_sim(a):
+    from . import whatsapp
+    for reply in whatsapp.simulate(" ".join(a.text), a.lang):
+        print(reply)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="musa_sentinel", description="MUSA Visa Sentinel — verify before anyone pays.")
     p.add_argument("--json", action="store_true", help="machine-readable output")
@@ -214,6 +227,15 @@ def main(argv=None):
     s.add_argument("template", nargs="?")
     s.add_argument("vars", nargs="*", help="key=value")
     s.set_defaults(fn=cmd_draft)
+
+    s = sub.add_parser("whatsapp-serve", help="run the WhatsApp Cloud API webhook bot")
+    s.add_argument("--port", type=int)
+    s.set_defaults(fn=cmd_wa_serve)
+
+    s = sub.add_parser("whatsapp-sim", help="show the bot's reply to a message, offline")
+    s.add_argument("text", nargs="+")
+    s.add_argument("--lang", choices=["en", "ur"], default="en")
+    s.set_defaults(fn=cmd_wa_sim)
 
     s = sub.add_parser("build", help="regenerate public/musa/traps.js and the Dashy page")
     s.set_defaults(fn=cmd_build)

@@ -30,6 +30,7 @@ DISCOVER → VERIFY → PRICE → CROSS-CHECK → CONTACT → NEGOTIATE → DOCU
 | **Outreach templates** | `musa_sentinel/outreach.py` | Due-diligence messages to OEPs, employers and embassies (§23–25), plus sales pitches to Cyprus agencies, OEPs and lawyers, and a Roman Urdu offer for workers. |
 | **Revenue forecaster** | `musa_sentinel/revenue.py`, `data/pricing.json` | Projects 12 months of revenue under conservative, base and aggressive assumptions, product by product. |
 | **Command Centre** | `user-data/musa.yml` (generated) | A Dashy page with the revenue engine, official sources, partners ranked by score, and job channels. |
+| **WhatsApp bot** | `musa_sentinel/whatsapp.py` | A webhook for the Meta WhatsApp Cloud API. Workers forward an agent's message and get the scam check in English or Roman Urdu. Commands: PRICE, REPORT (sends your payment link), HELP, URDU/ENGLISH, STOP. Every webhook's signature is verified, Meta's duplicate deliveries are ignored, each sender is limited to 10 scans an hour, and opt-outs survive a restart. Each scan is logged as a lead in `data/leads.jsonl`, **without the message text**. |
 | **Cyprus adapter** | `data/country_adapters/cyprus.json` | Records which authority decides what for each route. Fees and processing times are left **blank on purpose**: read them from the official source and record the date you checked. |
 
 ## Run it
@@ -46,13 +47,37 @@ python -m musa_sentinel match samples/candidate.json samples/jobs.json
 python -m musa_sentinel forecast --scenario conservative
 python -m musa_sentinel draft                       # list templates
 python -m musa_sentinel draft partner_cy_agency contact="HR Team" company="MUSA" sender="Musa" phone="+92..."
+python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today" --lang ur   # bot reply, offline
 python -m musa_sentinel build                       # regenerate Scam Shield data + Dashy page after editing data/*.json
-python -m unittest discover -s tests                # 29 tests
+python -m unittest discover -s tests                # 44 tests
 ```
 
 Add `--json` before the subcommand to get machine-readable output for n8n, Make or Zapier, e.g. `python -m musa_sentinel --json scan ...`.
 
 **Before launch:** put your WhatsApp Business number in `CONFIG.whatsapp` at the bottom of `public/musa/index.html`.
+
+## Going live on WhatsApp (about 1 hour)
+
+1. **Meta app:** at developers.facebook.com, create an app of type *Business*, add the **WhatsApp** product, and add and verify your business phone number.
+   Create a **system user** in Business Settings and generate a permanent token with `whatsapp_business_messaging`. Note the
+   **Phone number ID** and the **App secret** (App settings → Basic).
+2. **Configure:** `cp .env.example .env` and fill in the values. Set `MUSA_PAYMENT_LINK` to your JazzCash, Easypaisa-merchant or Stripe link.
+3. **Run it on an HTTPS host.** Meta only calls HTTPS webhooks. Pick one:
+   - `docker build -t musa-whatsapp . && docker run -d -p 8088:8088 --env-file .env -v musa-data:/app/data musa-whatsapp`
+     behind Caddy or nginx on a small Hetzner VPS (Caddy gives you HTTPS automatically).
+   - Or on any Python host: `python -m musa_sentinel whatsapp-serve`.
+   - To test from your laptop, `cloudflared tunnel --url http://localhost:8088` gives a temporary HTTPS URL.
+4. **Webhook:** in Meta → WhatsApp → Configuration, set the callback to `https://<your-host>/webhook`, set the verify token to `WA_VERIFY_TOKEN`,
+   and subscribe to the **messages** field.
+5. **Test:** send "Hi" to your number, then forward a scam-looking offer.
+6. **Daily routine:** `data/leads.jsonl` lists everyone who scanned, asked for prices or asked for a report. Follow up on `report_request` the same day.
+
+Notes:
+- The bot only replies to people who message first, which keeps it inside WhatsApp's free 24-hour service window. Promotional messages *you* start
+  need Meta-approved templates and opt-in. Don't broadcast to the lead log.
+- The bot keeps language choice and duplicate tracking in memory, so a restart resets language to English. Opt-outs are rebuilt from the
+  lead log on startup.
+- Keep the lead log private and delete old entries regularly; it contains WhatsApp numbers.
 
 ---
 
@@ -145,7 +170,7 @@ and matching core:
 - **Hosting:** Hetzner (Germany) for GDPR. The Proton suite for staff email and document storage.
 
 ## Next build steps (highest value first)
-1. A WhatsApp bot that takes forwarded messages and replies with the scan result (n8n plus `--json scan`).
+1. ~~WhatsApp bot~~ ✅ done (`whatsapp-serve`). Next: a small admin view of `leads.jsonl` on the Dashy page.
 2. Lookup helpers for the BEOE OEP list and permissions that write `Claim` objects with `checked_on` dates.
 3. Persistent storage for cases and the graph (SQLite to start, then Supabase), so the reputation graph keeps building.
 4. Stripe or JazzCash payment links for the €15 and €79 reports.
