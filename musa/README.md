@@ -27,6 +27,8 @@ python -m musa_platform retention    # apply the data-retention policy now
 docker build -t musa . && docker run -d -p 8080:8080 --env-file .env -v musa-data:/data musa
 ```
 
+**Production on Hetzner:** see [`deploy/hetzner/README.md`](deploy/hetzner/README.md). You paste one cloud-init file into the Hetzner console and get HTTPS, a firewall, backups every 6 hours and nightly auto-updates from GitHub.
+
 | Audience | Pages | What they get | How it earns |
 |---|---|---|---|
 | Workers & families (B2C) | `/` `/check` `/report` `/order/<ref>` | Free Scam Shield, then a Verify-Before-You-Pay report (Rs 4,500) or deep file (Rs 22,500) with reference-coded payment | Report fees |
