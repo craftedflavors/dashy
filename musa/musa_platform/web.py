@@ -4,6 +4,7 @@ Run:  python -m musa_platform serve        (PORT, default 8080)
 """
 import json
 import mimetypes
+import urllib.parse
 import os
 import re
 import secrets
@@ -15,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 from musa_sentinel import matching, payments, revenue, traps as traps_mod, whatsapp, leadlog
 
-from . import DATA_DIR, STATIC_DIR, admin_ui, agents, compliance, db, scout, ui
+from . import DATA_DIR, STATIC_DIR, admin_ui, agents, alerts, compliance, db, scout, seo, ui, urdu
 
 FLASH = {
     "verified": ("ok", "Marked verified."), "flagged": ("ok", "Flagged."), "expired": ("ok", "Expired."), "added": ("ok", "Opportunity added."),
@@ -25,6 +26,7 @@ FLASH = {
     "erased": ("ok", "Personal data erased and logged."), "applied": ("ok", "Application received. We will email you within 2 working days."),
     "requested": ("ok", "Request received. We will reply within 1 working day."), "deleted": ("ok", "Your profile was deleted."),
     "claimed": ("ok", "Thank you. We will confirm your payment and start your report."),
+    "alert_sent": ("ok", "Marked sent."),
 }
 EXAMPLE_SCAM = ("Assalam o alaikum brother. Cyprus construction visa 100% guarantee hai. Total package 9 lakh rupees. "
                 "Embassy appointment not available, we arrange it. Pay today, only 3 seats left. Send to my personal account, contract after payment.")
@@ -45,6 +47,7 @@ class State:
         self.pricing = revenue.load_pricing()
         with open(os.path.join(DATA_DIR, "roles.json"), encoding="utf-8") as f:
             self.roles = json.load(f)["roles"]
+        self.guides = seo.guides(self.knowledge, self.traps)
         self.hits = defaultdict(deque)
         self.lock = threading.Lock()
 
@@ -91,6 +94,7 @@ def admin_kpis(bot):
         "last_scout": last["started_at"][:16].replace("T", " ") if last else "never",
         "sources_on": sum(1 for x in scout.load_sources() if x.get("enabled") and x.get("url")),
         "wa": leadlog.summarise(leadlog.load(bot.leads_file)),
+        "alerts_todo": sum(len(i["todo"]) for i in alerts.queue(bot.opted_out)),
     }
 
 
@@ -105,6 +109,8 @@ def admin_queue(k):
         q.append(("/admin/leads", "WhatsApp: %d to deliver, %d payments to verify, %d report requests" % (wa["to_deliver"], wa["to_verify"], wa["hot"])))
     if k["dsar_open"]:
         q.append(("/admin/compliance", "Answer %d data request(s) (legal deadline: 1 month)" % k["dsar_open"]))
+    if k.get("alerts_todo"):
+        q.append(("/admin/alerts", "Send %d job alert(s) to confirmed subscribers" % k["alerts_todo"]))
     if k["employers_new"]:
         q.append(("/admin/employers", "Call back %d employer(s)" % k["employers_new"]))
     if k["partners_pending"]:
@@ -129,6 +135,10 @@ def opportunity_filters(qs):
 def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=None, stripe_secret=None):
     Base = whatsapp.make_handler(bot, verify_token, app_secret, admin_password, stripe_secret)
     BOT_GET = {"/webhook", "/admin/leads"}
+    if not any(getattr(h, "musa_alerts", False) for h in bot.hooks):
+        hook = alerts.bot_hook(ui.site_url())
+        hook.musa_alerts = True
+        bot.hooks.append(hook)
 
     class Handler(Base):
         server_version = "MUSA-Corridor/1.0"
@@ -148,6 +158,15 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def text(self, body, ctype):
+            data = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", ctype + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=3600")
             self.end_headers()
             self.wfile.write(data)
 
@@ -178,7 +197,9 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                     return data if isinstance(data, dict) else {}
                 except ValueError:
                     return {}
-            return {k: v[0] for k, v in parse_qs(raw, keep_blank_values=True).items()}
+            full = parse_qs(raw, keep_blank_values=True)
+            self.form_lists = full
+            return {k: v[0] for k, v in full.items()}
 
         def ip(self):
             return (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip()
@@ -225,6 +246,11 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             if path == "/":
                 latest = db.q("SELECT * FROM opportunities WHERE status IN ('lead','signal','verified') ORDER BY (status='verified') DESC, source_tier ASC, found_at DESC LIMIT 6")
                 return self.html(ui.home(stats(), latest)) or True
+            if path == "/ur":
+                latest = db.q("SELECT * FROM opportunities WHERE status IN ('lead','signal','verified') ORDER BY (status='verified') DESC, source_tier ASC, found_at DESC LIMIT 4")
+                return self.html(urdu.home(stats(), latest)) or True
+            if path == "/ur/check":
+                return self.html(urdu.check()) or True
             if path == "/check":
                 return self.html(ui.check_page(EXAMPLE_SCAM, self.scan(EXAMPLE_SCAM, "web-example")) if qs.get("example") else ui.check_page()) or True
             if path == "/opportunities":
@@ -269,8 +295,49 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 return self.html(ui.employer_page()) or True
             m = re.fullmatch(r"/partners/([a-z0-9-]{3,80})", path)
             if m:
-                p = db.q("SELECT * FROM partners WHERE slug=? AND status='approved'", (m.group(1),), one=True)
+                p = db.q("SELECT * FROM partners WHERE slug=? AND status='approved' AND billing_status='active' "
+                         "AND (paid_until IS NULL OR paid_until >= ?)", (m.group(1), db.now_iso()), one=True)
                 return (self.html(ui.partner_badge(p)) or True) if p else None
+            if path == "/alerts":
+                return self.html(ui.alerts_page(list(seo.SECTOR_INTRO), [qs.get("sector")])) or True
+            m = re.fullmatch(r"/alerts/stop/([A-Za-z0-9_-]{16,64})", path)
+            if m:
+                return self.html(ui.alerts_stop_page(m.group(1), done=qs.get("m") == "stopped")) or True
+            if path == "/guides":
+                return self.html(seo.guides_index(state.guides)) or True
+            m = re.fullmatch(r"/guides/([a-z0-9-]+)", path)
+            if m:
+                g = next((g for g in state.guides if g["slug"] == m.group(1)), None)
+                return (self.html(seo.guide_page(g, state.traps)) or True) if g else None
+            m = re.fullmatch(r"/jobs/([a-z0-9-]+)", path)
+            if m:
+                sector = next((x for x in seo.SECTOR_INTRO if seo.slugify(x) == m.group(1)), None)
+                if not sector:
+                    return None
+                live = "sector=? AND status IN ('lead','signal','verified')"
+                rows = db.q("SELECT * FROM opportunities WHERE %s ORDER BY (status='verified') DESC, source_tier, found_at DESC LIMIT 50" % live, (sector,))
+                return self.html(seo.sector_page(sector, rows, db.count("SELECT COUNT(*) FROM opportunities WHERE " + live, (sector,)),
+                                                 db.count("SELECT COUNT(*) FROM opportunities WHERE visa_signal=1 AND " + live, (sector,)))) or True
+            if path == "/sitemap.xml":
+                xml = seo.sitemap(state.guides, [x for x in seo.SECTOR_INTRO if x != "General"])
+                return (self.text(xml, "application/xml") or True) if xml else None
+            if path == "/robots.txt":
+                return self.text(seo.robots(), "text/plain") or True
+            m = re.fullmatch(r"/shortlist/([A-Za-z0-9_-]{16,64})", path)
+            if m:
+                rows = db.q("SELECT s.*, p.data FROM shortlists s JOIN profiles p ON p.token=s.profile_token WHERE s.token=? AND s.status!='rejected' ORDER BY s.score DESC", (m.group(1),))
+                if not rows:
+                    return None
+                req = db.q("SELECT * FROM employer_requests WHERE id=?", (rows[0]["request_id"],), one=True)
+                items = [dict(r, profile=json.loads(r["data"])) for r in rows if json.loads(r["data"]).get("share_ok")]
+                db.audit("employer", "shortlist.viewed", target=rows[0]["request_id"])
+                return self.html(ui.shortlist_page(req, items)) or True
+            m = re.fullmatch(r"/partner/billing/(PARTNER-\d+-[0-9A-F]{6})", path)
+            if m:
+                p = db.q("SELECT * FROM partners WHERE billing_ref=?", (m.group(1),), one=True)
+                if not p:
+                    return None
+                return self.html(ui.partner_billing_page(p, self.plan_for(p), state.payments, self.flash(qs))) or True
             if path == "/agents":
                 return self.html(ui.agents_page(agents.REGISTRY)) or True
             if path == "/privacy":
@@ -304,9 +371,10 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             f = self.form()
             if f is None:
                 return self._send(413)
-            if path == "/check":
+            if path in ("/check", "/ur/check"):
                 text = (f.get("text") or "")[:6000]
-                return self.html(ui.check_page(text, self.scan(text, "web") if text.strip() else None))
+                res = self.scan(text, "web-ur" if path.startswith("/ur") else "web") if text.strip() else None
+                return self.html(urdu.check(text, res) if path.startswith("/ur") else ui.check_page(text, res))
             if path == "/api/scan":
                 text = (f.get("text") or "")[:6000]
                 res = self.scan(text, "api")
@@ -324,8 +392,19 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             if m:
                 db.x("UPDATE orders SET status='claimed', claimed_at=? WHERE ref=? AND status='requested'", (db.now_iso(), m.group(1)))
                 return self.redirect("/order/%s?m=claimed" % m.group(1))
+            if path == "/alerts":
+                return self.post_alerts(f)
+            m = re.fullmatch(r"/alerts/stop/([A-Za-z0-9_-]{16,64})", path)
+            if m:
+                alerts.stop(m.group(1))
+                return self.redirect("/alerts/stop/%s?m=stopped" % m.group(1))
             if path == "/business/partners":
                 return self.post_partner(f)
+            m = re.fullmatch(r"/partner/billing/(PARTNER-\d+-[0-9A-F]{6})/paid", path)
+            if m:
+                db.x("UPDATE partners SET billing_status='claimed' WHERE billing_ref=? AND billing_status='unpaid'", (m.group(1),))
+                db.audit("partner", "billing.claimed", target=m.group(1))
+                return self.redirect("/partner/billing/%s?m=claimed" % m.group(1))
             if path == "/business/employers":
                 return self.post_employer(f)
             if path == "/privacy/request":
@@ -367,6 +446,16 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             db.audit("customer", "order.created", target=ref)
             return self.redirect("/order/" + ref)
 
+        def post_alerts(self, f):
+            valid = list(seo.SECTOR_INTRO)
+            chosen = [x for x in getattr(self, "form_lists", {}).get("sector", []) if x in valid]
+            lang = "ur" if f.get("lang") == "ur" else "en"
+            if not ui.whatsapp_number():
+                return self.html(ui.alerts_page(valid, chosen, "Alerts are not available yet.", lang), 503)
+            if not f.get("consent"):
+                return self.html(ui.alerts_page(valid, chosen, "Please tick the consent box.", lang), 400)
+            return self.html(ui.alerts_confirm_page(alerts.create(chosen, lang)))
+
         def post_partner(self, f):
             required = ("org_name", "org_type", "country", "contact_name", "email")
             if not all((f.get(k) or "").strip() for k in required) or not f.get("consent"):
@@ -389,6 +478,85 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             db.audit("employer", "employer.requested", target=rid)
             return self.html(ui.layout("Request received", '<section><div class="wrap stack" style="max-width:720px"><span class="stamp green">Received</span><h1>Thank you</h1><p>We will contact %s within 1 working day to confirm roles, timing and the licensed agency that will handle the permits.</p><a class="btn" href="/business">Back</a></div></section>' % ui.e(clean["contact_name"])))
 
+        def plan_for(self, p):
+            plans = state.payments.get("plans", {})
+            return plans.get(p["tier"]) or plans.get("pro") or {"name": "Partner plan", "eur": 0, "interval": "month", "stripe_link": ""}
+
+        def activate_partner(self, pid, months=None, subscription=None, by="system"):
+            """Manual payments extend paid_until by whole months; Stripe subscriptions stay active until Stripe ends them."""
+            p = db.q("SELECT * FROM partners WHERE id=?", (pid,), one=True)
+            if not p:
+                return
+            if subscription:
+                db.x("UPDATE partners SET billing_status='active', paid_until=NULL, stripe_subscription=? WHERE id=?", (subscription, pid))
+            else:
+                from datetime import datetime, timedelta, timezone
+                start = max(datetime.now(timezone.utc), datetime.fromisoformat(p["paid_until"]) if p["paid_until"] else datetime.now(timezone.utc))
+                until = (start + timedelta(days=31 * (months or 1))).isoformat(timespec="seconds")
+                db.x("UPDATE partners SET billing_status='active', paid_until=? WHERE id=?", (until, pid))
+            db.audit(by, "partner.billing_active", target=pid)
+
+        def _stripe(self):
+            """Stripe webhook for every product: web report orders, partner subscriptions, and WhatsApp orders."""
+            if not stripe_secret:
+                return self._send(404)
+            length = int(self.headers.get("Content-Length") or 0)
+            if length > 1_000_000:
+                return self._send(413)
+            body = self.rfile.read(length)
+            if not payments.verify_stripe_signature(stripe_secret, body, self.headers.get("Stripe-Signature")):
+                return self._send(400)
+            try:
+                event = json.loads(body)
+            except ValueError:
+                return self._send(400)
+            ended = payments.parse_subscription_end(event)
+            if ended:
+                n = db.xc("UPDATE partners SET billing_status='lapsed' WHERE stripe_subscription=?", (ended,))
+                if n:
+                    db.audit("stripe", "partner.billing_lapsed", detail={"subscription": ended})
+                return self._send(200, b"ok")
+            paid = payments.parse_stripe_event(event)
+            if not paid:
+                return self._send(200, b"ok")
+            if db.q("SELECT 1 FROM audit WHERE action='stripe.event' AND target=?", (paid["event_id"] or "",), one=True):
+                return self._send(200, b"ok")  # Stripe retries deliveries
+            ref = paid["reference"]
+            partner = db.q("SELECT id FROM partners WHERE billing_ref=?", (ref,), one=True)
+            if partner:
+                self.activate_partner(partner["id"], months=1 if not paid.get("subscription") else None, subscription=paid.get("subscription"), by="stripe")
+            elif db.q("SELECT 1 FROM orders WHERE ref=?", (ref,), one=True):
+                db.x("UPDATE orders SET status='paid', paid_at=?, method='card' WHERE ref=? AND status IN ('requested','claimed')", (db.now_iso(), ref))
+            else:
+                bot.confirm_payment(ref, "card", paid["amount"], paid["currency"], paid["event_id"])
+            db.audit("stripe", "stripe.event", target=paid["event_id"] or "", detail={"reference": ref, "amount": paid["amount"], "currency": paid["currency"]})
+            return self._send(200, b"ok")
+
+        def shortlist_token(self, rid):
+            row = db.q("SELECT token FROM shortlists WHERE request_id=? LIMIT 1", (rid,), one=True)
+            return row["token"] if row else secrets.token_urlsafe(18)
+
+        def employer_detail(self, rid, qs, fl):
+            req = db.q("SELECT * FROM employer_requests WHERE id=?", (rid,), one=True)
+            if not req:
+                return self.html(ui.not_found(), 404)
+            roles = [r for r in state.roles if r["sector"] == req["sector"]] or state.roles
+            role = qs.get("role") if any(r["title"] == qs.get("role") for r in roles) else roles[0]["title"]
+            tpl = next(r for r in roles if r["title"] == role)
+            cands = []
+            for p in db.q("SELECT token, data FROM profiles ORDER BY created_at DESC LIMIT 2000"):
+                prof = json.loads(p["data"])
+                if prof.get("share_ok"):
+                    cands.append({"token": p["token"], "profile": prof, "match": matching.match(prof, tpl)})
+            cands.sort(key=lambda c: -c["match"]["overall"])
+            shortlist = [dict(r, name=json.loads(r["data"]).get("name") if r["data"] else "[deleted]") for r in db.q(
+                "SELECT s.*, p.data FROM shortlists s LEFT JOIN profiles p ON p.token=s.profile_token WHERE s.request_id=? ORDER BY s.score DESC", (rid,))]
+            token = shortlist[0]["token"] if shortlist else None
+            base = ui.site_url() or ("http://" + (self.headers.get("Host") or "localhost"))
+            share = (base + "/shortlist/" + token) if token else "(add a candidate to create the link)"
+            fee = next((p["price"] for p in state.pricing["products"] if p["id"] == "employer_sourcing"), 400)
+            return self.html(admin_ui.employer_detail(req, roles, role, cands[:50], shortlist, share, fee, fl))
+
         # ---------- admin ----------
         def admin_get(self, path, qs):
             fl = self.flash(qs)
@@ -404,13 +572,23 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 return self.html(admin_ui.partners(db.q("SELECT * FROM partners ORDER BY status='pending' DESC, created_at DESC"), fl))
             if path == "/admin/employers":
                 return self.html(admin_ui.employers(db.q("SELECT * FROM employer_requests ORDER BY status='new' DESC, created_at DESC"), fl))
+            m = re.fullmatch(r"/admin/employers/(\d+)", path)
+            if m:
+                return self.employer_detail(int(m.group(1)), qs, fl)
+            if path == "/admin/alerts":
+                site = ui.site_url()
+                return self.html(admin_ui.alerts(alerts.stats(), alerts.queue(bot.opted_out),
+                                                 lambda o, a: alerts.message(o, a["lang"], site, a["token"]), fl))
             if path == "/admin/scout":
                 return self.html(admin_ui.scout(scout.load_sources(), db.q("SELECT * FROM scout_runs ORDER BY id DESC LIMIT 50"), fl))
             if path == "/admin/compliance":
                 return self.html(admin_ui.compliance(db.q("SELECT * FROM dsar ORDER BY status='open' DESC, at DESC"), db.q("SELECT * FROM audit ORDER BY id DESC LIMIT 100"), flash=fl))
             if path == "/admin/revenue":
                 actual = db.q("SELECT COALESCE(SUM(amount_pkr),0) pkr, COUNT(*) count FROM orders WHERE status IN ('paid','delivered')", one=True)
-                return self.html(admin_ui.revenue(revenue.forecast(12, "base", state.pricing), dict(actual), fl))
+                actual = dict(actual)
+                actual["placements"] = db.count("SELECT COUNT(*) FROM shortlists WHERE status='hired'")
+                actual["placement_eur"] = actual["placements"] * next((p["price"] for p in state.pricing["products"] if p["id"] == "employer_sourcing"), 400)
+                return self.html(admin_ui.revenue(revenue.forecast(12, "base", state.pricing), actual, fl))
             self.html(ui.not_found(), 404)
 
         def admin_post(self, path):
@@ -439,6 +617,10 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                     db.x("UPDATE orders SET status='delivered', delivered_at=? WHERE ref=? AND status='paid'", (db.now_iso(), ref))
                 db.audit("admin", "order." + act, target=ref)
                 return self.redirect("/admin/orders?m=" + act)
+            m = re.fullmatch(r"/admin/partners/(\d+)/paid", path)
+            if m:
+                self.activate_partner(int(m.group(1)), months=1, by="admin")
+                return self.redirect("/admin/partners?m=paid")
             m = re.fullmatch(r"/admin/partners/(\d+)/(approve|reject|revoke)", path)
             if m:
                 pid, act = int(m.group(1)), m.group(2)
@@ -448,16 +630,47 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                         slug = re.sub(r"[^a-z0-9]+", "-", p["org_name"].lower()).strip("-")[:60] or "partner"
                         if db.q("SELECT 1 FROM partners WHERE slug=? AND id!=?", (slug, pid), one=True):
                             slug = "%s-%d" % (slug, pid)
-                        db.x("UPDATE partners SET status='approved', slug=?, decided_at=? WHERE id=?", (slug, db.now_iso(), pid))
+                        db.x("UPDATE partners SET status='approved', slug=?, decided_at=?, billing_ref=COALESCE(billing_ref, ?), "
+                             "billing_status=CASE WHEN billing_status='active' THEN 'active' ELSE 'unpaid' END WHERE id=?",
+                             (slug, db.now_iso(), "PARTNER-%d-%s" % (pid, secrets.token_hex(3).upper()), pid))
                     else:
                         db.x("UPDATE partners SET status=?, decided_at=? WHERE id=?", ("rejected" if act == "reject" else "revoked", db.now_iso(), pid))
                     db.audit("admin", "partner." + act, target=pid)
                 return self.redirect("/admin/partners?m=%s" % {"approve": "approved", "reject": "rejected", "revoke": "revoked"}[act])
+            m = re.fullmatch(r"/admin/employers/(\d+)/shortlist", path)
+            if m:
+                rid = int(m.group(1))
+                prof = db.q("SELECT token FROM profiles WHERE token=?", ((f.get("profile") or "")[:64],), one=True)
+                req = db.q("SELECT * FROM employer_requests WHERE id=?", (rid,), one=True)
+                if prof and req:
+                    token = self.shortlist_token(rid)
+                    try:
+                        score = max(0, min(100, int(f.get("score") or 0)))
+                    except ValueError:
+                        score = 0
+                    db.x("INSERT OR IGNORE INTO shortlists (request_id, token, role, profile_token, score, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+                         (rid, token, (f.get("role") or "")[:120], prof["token"], score, db.now_iso(), db.now_iso()))
+                    db.audit("admin", "shortlist.add", target=rid)
+                return self.redirect("/admin/employers/%d?m=added&role=%s" % (rid, urllib.parse.quote(f.get("role") or "")))
+            m = re.fullmatch(r"/admin/shortlists/(\d+)/status", path)
+            if m:
+                st = f.get("status") if f.get("status") in admin_ui.PIPE else "proposed"
+                row = db.q("SELECT request_id FROM shortlists WHERE id=?", (int(m.group(1)),), one=True)
+                if row:
+                    db.x("UPDATE shortlists SET status=?, updated_at=? WHERE id=?", (st, db.now_iso(), int(m.group(1))))
+                    db.audit("admin", "shortlist." + st, target=m.group(1))
+                    return self.redirect("/admin/employers/%d" % row["request_id"])
+                return self.redirect("/admin/employers")
             m = re.fullmatch(r"/admin/employers/(\d+)/contacted", path)
             if m:
                 db.x("UPDATE employer_requests SET status='contacted' WHERE id=?", (int(m.group(1)),))
                 db.audit("admin", "employer.contacted", target=m.group(1))
                 return self.redirect("/admin/employers?m=contacted")
+            m = re.fullmatch(r"/admin/alerts/(\d+)/(\d+)/sent", path)
+            if m:
+                alerts.mark_sent(int(m.group(1)), int(m.group(2)))
+                db.audit("admin", "alert.sent", target="%s:%s" % m.groups())
+                return self.redirect("/admin/alerts?m=alert_sent")
             if path == "/admin/scout/run":
                 scout.run_all()
                 return self.redirect("/admin/scout?m=scout")

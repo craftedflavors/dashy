@@ -19,7 +19,7 @@ os.environ["MUSA_LEADS_FILE"] = os.path.join(TMP, "leads.jsonl")
 os.environ["MUSA_CONCIERGE_AI"] = "auto"
 os.environ.pop("ANTHROPIC_API_KEY", None)
 
-from musa_platform import agents, compliance, db, scout, web  # noqa: E402
+from musa_platform import agents, alerts as alerts_mod, compliance, db, scout, web  # noqa: E402
 from musa_sentinel import whatsapp  # noqa: E402
 
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:pw").decode()}
@@ -35,8 +35,8 @@ class Server:
         state = web.State()
         scout.seed()
         bot = whatsapp.Bot(leads_file=os.environ["MUSA_LEADS_FILE"])
-        self.state = state
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.make_handler(state, bot, "vt", "as", "pw", None))
+        self.state, self.bot = state, bot
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.make_handler(state, bot, "vt", "as", "pw", "whsec_test"))
         self.httpd.RequestHandlerClass.log_message = lambda *a: None
         self.base = "http://127.0.0.1:%d" % self.httpd.server_address[1]
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
@@ -138,6 +138,12 @@ class Flows(unittest.TestCase):
         pid = db.q("SELECT id FROM partners WHERE org_name='Lahore Overseas Ltd'", one=True)["id"]
         self.assertEqual(SRV.req("/partners/lahore-overseas-ltd")[0], 404)  # not approved yet
         SRV.req("/admin/partners/%d/approve" % pid, b"", AUTH)
+        self.assertEqual(SRV.req("/partners/lahore-overseas-ltd")[0], 404)  # approved but not paid
+        ref = db.q("SELECT billing_ref FROM partners WHERE id=?", (pid,), one=True)["billing_ref"]
+        self.assertIn("Waiting for payment", SRV.req("/partner/billing/" + ref)[1])
+        self.assertEqual(SRV.req("/partner/billing/%s/paid" % ref, b"")[0], 303)
+        self.assertEqual(db.q("SELECT billing_status FROM partners WHERE id=?", (pid,), one=True)["billing_status"], "claimed")
+        SRV.req("/admin/partners/%d/paid" % pid, b"", AUTH)
         code, body, _ = SRV.req("/partners/lahore-overseas-ltd")
         self.assertEqual(code, 200)
         self.assertIn("OEP-1234", body)
@@ -294,3 +300,213 @@ class RateLimit(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Growth(unittest.TestCase):
+    def test_guides_and_sector_pages(self):
+        code, body, _ = SRV.req("/guides")
+        self.assertEqual(code, 200)
+        for g in SRV.state.guides:
+            code, body, _ = SRV.req("/guides/" + g["slug"])
+            self.assertEqual(code, 200, g["slug"])
+            self.assertIn('"@type": "FAQPage"', body)
+            self.assertIn("Sources:", body)
+        code, body, _ = SRV.req("/jobs/construction")
+        self.assertEqual(code, 200)
+        self.assertIn("Construction worker", body)
+        self.assertEqual(SRV.req("/jobs/not-a-sector")[0], 404)
+
+    def test_guides_only_cite_knowledge_base(self):
+        ids = {k["id"] for k in SRV.state.knowledge}
+        for g in SRV.state.guides:
+            self.assertTrue(g["faq"], g["slug"])
+            for q, a, srcs in g["faq"]:
+                self.assertTrue(srcs, q)
+                self.assertIn(a, [k["a"] for k in SRV.state.knowledge])
+        self.assertTrue(ids)
+
+    def test_robots_and_sitemap_follow_site_url(self):
+        os.environ.pop("MUSA_SITE_URL", None)
+        self.assertEqual(SRV.req("/sitemap.xml")[0], 404)
+        self.assertIn("Disallow: /admin", SRV.req("/robots.txt")[1])
+        os.environ["MUSA_SITE_URL"] = "https://musa.example.com"
+        try:
+            code, xml, h = SRV.req("/sitemap.xml")
+            self.assertEqual(code, 200)
+            self.assertIn("<loc>https://musa.example.com/guides/cyprus-visa-scams</loc>", xml)
+            self.assertIn("Sitemap: https://musa.example.com/sitemap.xml", SRV.req("/robots.txt")[1])
+            self.assertIn('rel="canonical" href="https://musa.example.com/check"', SRV.req("/check")[1])
+        finally:
+            os.environ.pop("MUSA_SITE_URL", None)
+
+    def test_whatsapp_links_when_configured(self):
+        self.assertNotIn("wa.me/", SRV.req("/")[1])
+        os.environ["MUSA_WHATSAPP"] = "+357 94 031786"
+        try:
+            self.assertIn("https://wa.me/35794031786?text=", SRV.req("/")[1])
+            self.assertIn("ask us on WhatsApp", SRV.req("/check", {"text": "visa 100% guarantee"})[1])
+        finally:
+            os.environ.pop("MUSA_WHATSAPP", None)
+
+
+class Shortlists(unittest.TestCase):
+    def test_employer_shortlist_loop(self):
+        # two candidates, only one opts in to CV sharing
+        SRV.req("/match", {"name": "Sharer Mason", "skills": "mason, shuttering", "years": "7", "languages": "en:A2", "consent": "on", "share_ok": "on"})
+        SRV.req("/match", {"name": "Private Mason", "skills": "mason", "years": "9", "languages": "en:B1", "consent": "on"})
+        SRV.req("/business/employers", {"company": "Paphos Builders", "sector": "Construction", "roles": "3 masons", "contact_name": "D",
+                                        "email": "d@pb.cy", "headcount": "3", "consent": "on"})
+        rid = db.q("SELECT id FROM employer_requests WHERE company='Paphos Builders'", one=True)["id"]
+        code, page, _ = SRV.req("/admin/employers/%d" % rid, headers=AUTH)
+        self.assertEqual(code, 200)
+        self.assertIn("Sharer Mason", page)
+        self.assertNotIn("Private Mason", page)  # never shown without consent
+        tok = db.q("SELECT token FROM profiles WHERE name='Sharer Mason'", one=True)["token"]
+        self.assertEqual(SRV.req("/admin/employers/%d/shortlist" % rid, {"profile": tok, "role": "Mason / block layer", "score": "95"}, AUTH)[0], 303)
+        sl = db.q("SELECT * FROM shortlists WHERE request_id=?", (rid,), one=True)
+        code, body, _ = SRV.req("/shortlist/" + sl["token"])
+        self.assertEqual(code, 200)
+        self.assertIn("Sharer Mason", body)
+        self.assertIn('content="noindex"', body)
+        self.assertNotIn("Private Mason", body)
+        SRV.req("/admin/shortlists/%d/status" % sl["id"], {"status": "hired"}, AUTH)
+        self.assertIn("Placement fees (1 hires)", SRV.req("/admin/revenue", headers=AUTH)[1])
+        # candidate deletes their profile -> disappears from the employer link
+        SRV.req("/cv/%s/delete" % tok, b"")
+        self.assertEqual(SRV.req("/shortlist/" + sl["token"])[0], 404)
+
+    def test_shortlist_requires_admin_and_valid_token(self):
+        self.assertEqual(SRV.req("/admin/employers/1")[0], 401)
+        self.assertEqual(SRV.req("/shortlist/" + "x" * 24)[0], 404)
+
+
+class RomanUrdu(unittest.TestCase):
+    def test_urdu_pages(self):
+        code, body, _ = SRV.req("/ur")
+        self.assertEqual(code, 200)
+        self.assertIn('lang="ur-Latn"', body)
+        self.assertIn("Agent ko paisa dene se pehle", body)
+        code, body, _ = SRV.req("/ur/check", {"text": "Visa 100% guarantee hai, aaj hi mere account mein paisa bhejo"})
+        self.assertEqual(code, 200)
+        self.assertIn("Ruk jayein", body)
+        self.assertIn("zaati", body)  # Urdu reply from the trap library
+        self.assertIn('href="/check"', SRV.req("/ur/check")[1])
+
+
+def _stripe_post(event):
+    import hashlib, hmac, time as _t
+    body = json.dumps(event).encode()
+    ts = int(_t.time())
+    sig = "t=%d,v1=%s" % (ts, hmac.new(b"whsec_test", ("%d." % ts).encode() + body, hashlib.sha256).hexdigest())
+    return SRV.req("/stripe/webhook", body, {"Stripe-Signature": sig, "Content-Type": "application/json"})
+
+
+def _checkout(ref, eid, sub=None):
+    return {"id": eid, "type": "checkout.session.completed", "data": {"object": {
+        "client_reference_id": ref, "payment_status": "paid", "amount_total": 9900, "currency": "eur", "subscription": sub}}}
+
+
+class StripeRouting(unittest.TestCase):
+    def test_web_order_card_payment(self):
+        code, _, h = SRV.req("/report", {"name": "Card Payer", "contact": "c@x.pk", "details": "OEP 9", "consent": "on"})
+        ref = h["Location"].rsplit("/", 1)[1]
+        self.assertEqual(_stripe_post(_checkout(ref, "evt_order_1"))[0], 200)
+        o = db.q("SELECT status, method FROM orders WHERE ref=?", (ref,), one=True)
+        self.assertEqual((o["status"], o["method"]), ("paid", "card"))
+
+    def test_partner_subscription_lifecycle(self):
+        SRV.req("/business/partners", {"org_name": "Karachi Careers", "org_type": "oep", "country": "Pakistan", "contact_name": "K",
+                                       "email": "k@kc.pk", "tier": "badge", "consent": "on"})
+        pid = db.q("SELECT id FROM partners WHERE org_name='Karachi Careers'", one=True)["id"]
+        SRV.req("/admin/partners/%d/approve" % pid, b"", AUTH)
+        ref = db.q("SELECT billing_ref FROM partners WHERE id=?", (pid,), one=True)["billing_ref"]
+        self.assertEqual(_stripe_post(_checkout(ref, "evt_sub_1", sub="sub_123"))[0], 200)
+        self.assertEqual(SRV.req("/partners/karachi-careers")[0], 200)
+        _stripe_post(_checkout(ref, "evt_sub_1", sub="sub_123"))  # duplicate delivery is ignored
+        self.assertEqual(db.count("SELECT COUNT(*) FROM audit WHERE action='stripe.event' AND target='evt_sub_1'"), 1)
+        _stripe_post({"id": "evt_end", "type": "customer.subscription.deleted", "data": {"object": {"id": "sub_123"}}})
+        self.assertEqual(SRV.req("/partners/karachi-careers")[0], 404)
+
+    def test_bad_signature(self):
+        body = json.dumps(_checkout("x", "e")).encode()
+        self.assertEqual(SRV.req("/stripe/webhook", body, {"Stripe-Signature": "t=1,v1=00"})[0], 400)
+
+
+def _wa(frm, body, mid):
+    return {"entry": [{"changes": [{"value": {"messages": [{"id": mid, "from": frm, "type": "text", "text": {"body": body}}]}}]}]}
+
+
+class JobAlerts(unittest.TestCase):
+    def setUp(self):
+        os.environ["MUSA_WHATSAPP"] = "+35794031786"
+
+    def tearDown(self):
+        os.environ.pop("MUSA_WHATSAPP", None)
+
+    def _signup(self, sectors, lang="en"):
+        code, body, _ = SRV.req("/alerts", [("sector", s) for s in sectors] + [("lang", lang), ("consent", "on")])
+        self.assertEqual(code, 200)
+        m = re.search(r"ALERTS ([A-Z0-9]{6})", body)
+        self.assertIsNotNone(m)
+        self.assertIn("wa.me/35794031786", body)
+        return m.group(1)
+
+    def test_double_opt_in_queue_and_stop(self):
+        self.assertEqual(SRV.req("/alerts?sector=Construction")[0], 200)
+        self.assertEqual(SRV.req("/alerts", {"sector": "Construction"})[0], 400)  # no consent
+        code = self._signup(["Construction", "Hospitality", "Not a sector"])
+        a = db.q("SELECT * FROM alerts WHERE code=?", (code,), one=True)
+        self.assertEqual((a["status"], a["contact"], a["sectors"]), ("pending", None, "Construction,Hospitality"))
+        # confirming from WhatsApp binds the number that actually wrote to us
+        out = SRV.bot.handle(_wa("923001112233", "alerts " + code.lower(), "m-al-1"))
+        self.assertIn("Job alerts are on", out[0]["text"])
+        a = db.q("SELECT * FROM alerts WHERE id=?", (a["id"],), one=True)
+        self.assertEqual((a["status"], a["contact"]), ("active", "923001112233"))
+        # a wrong code is just scanned like any other message
+        self.assertNotIn("Job alerts are on", SRV.bot.handle(_wa("923001112233", "ALERTS ZZZZZZ", "m-al-2"))[0]["text"])
+        oid = db.insert("opportunities", hash="al-1", title="Steel fixers, Limassol", sector="Construction", source="BEOE", source_tier=0,
+                        status="verified", found_at=db.now_iso())
+        db.insert("opportunities", hash="al-2", title="Greenhouse workers", sector="Agriculture", source="BEOE", source_tier=0,
+                  status="verified", found_at=db.now_iso())
+        db.insert("opportunities", hash="al-3", title="Unchecked mason lead", sector="Construction", source="Board", source_tier=4,
+                  status="lead", found_at=db.now_iso())
+        code_, page, _ = SRV.req("/admin/alerts", headers=AUTH)
+        self.assertEqual(code_, 200)
+        self.assertIn("Steel fixers", page)
+        self.assertIn("wa.me/923001112233", page)
+        self.assertIn("•••2233", page)
+        self.assertNotIn("Unchecked mason lead", page)  # leads are never pushed to people
+        todo = {i["opp"]["title"]: len(i["todo"]) for i in alerts_mod.queue()}
+        self.assertEqual(todo["Steel fixers, Limassol"], 1)
+        self.assertEqual(todo["Greenhouse workers"], 0)
+        self.assertRegex(SRV.req("/admin", headers=AUTH)[1], r"Send \d+ job alert")
+        self.assertEqual(SRV.req("/admin/alerts/%d/%d/sent" % (a["id"], oid), b"", AUTH)[0], 303)
+        self.assertEqual({i["opp"]["title"]: len(i["todo"]) for i in alerts_mod.queue()}["Steel fixers, Limassol"], 0)
+        # people who sent STOP to the bot drop out of the queue
+        self.assertEqual(sum(len(i["todo"]) for i in alerts_mod.queue({"923001112233"})), 0)
+        self.assertIn("alerts", compliance.find_personal("+92 300 1112233"))
+        # ALERTS OFF deletes the subscription and its send log
+        self.assertIn("Job alerts are off", SRV.bot.handle(_wa("923001112233", "ALERTS OFF", "m-al-3"))[0]["text"])
+        self.assertIsNone(db.q("SELECT 1 FROM alerts WHERE id=?", (a["id"],), one=True))
+        self.assertEqual(db.count("SELECT COUNT(*) FROM alert_sends WHERE alert_id=?", (a["id"],)), 0)
+
+    def test_web_stop_link_and_message_text(self):
+        code = self._signup([], "ur")
+        SRV.bot.handle(_wa("923009998877", "ALERTS " + code, "m-al-4"))
+        a = db.q("SELECT * FROM alerts WHERE code=?", (code,), one=True)
+        self.assertEqual(a["sectors"], "")
+        msg = alerts_mod.message({"id": 5, "title": "Cooks", "sector": "Hospitality", "status": "signal"}, "ur", "https://m.example", a["token"])
+        self.assertIn("https://m.example/alerts/stop/" + a["token"], msg)
+        self.assertIn("Kisi ko paisa dene se pehle", msg)
+        self.assertEqual(SRV.req("/alerts/stop/" + a["token"])[0], 200)
+        self.assertEqual(SRV.req("/alerts/stop/" + a["token"], b"")[0], 303)
+        self.assertIsNone(db.q("SELECT 1 FROM alerts WHERE id=?", (a["id"],), one=True))
+
+    def test_unavailable_without_whatsapp_number_and_pending_expiry(self):
+        os.environ.pop("MUSA_WHATSAPP", None)
+        self.assertEqual(SRV.req("/alerts", {"consent": "on"})[0], 503)
+        os.environ["MUSA_WHATSAPP"] = "+35794031786"
+        code = self._signup(["Care"])
+        db.x("UPDATE alerts SET created_at=? WHERE code=?", (db.now_iso(-8), code))
+        compliance.run_retention()
+        self.assertIsNone(db.q("SELECT 1 FROM alerts WHERE code=?", (code,), one=True))

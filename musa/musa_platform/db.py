@@ -36,6 +36,11 @@ CREATE TABLE IF NOT EXISTS employer_requests (
   contact_name TEXT, email TEXT, phone TEXT, message TEXT, status TEXT DEFAULT 'new',
   created_at TEXT, consent_at TEXT
 );
+CREATE TABLE IF NOT EXISTS shortlists (
+  id INTEGER PRIMARY KEY, request_id INTEGER NOT NULL, token TEXT NOT NULL, role TEXT, profile_token TEXT NOT NULL,
+  score INTEGER, status TEXT DEFAULT 'proposed', created_at TEXT, updated_at TEXT,
+  UNIQUE(request_id, profile_token)
+);
 CREATE TABLE IF NOT EXISTS scans (
   id INTEGER PRIMARY KEY, created_at TEXT, colour TEXT, score INTEGER, traps TEXT, channel TEXT
 );
@@ -49,11 +54,23 @@ CREATE TABLE IF NOT EXISTS dsar (
   id INTEGER PRIMARY KEY, at TEXT, contact TEXT, kind TEXT, status TEXT DEFAULT 'open',
   resolved_at TEXT, note TEXT
 );
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, code TEXT UNIQUE NOT NULL, contact TEXT, sectors TEXT, lang TEXT DEFAULT 'en',
+  status TEXT DEFAULT 'pending', created_at TEXT, consent_at TEXT, confirmed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS alert_sends (
+  alert_id INTEGER NOT NULL, opp_id INTEGER NOT NULL, sent_at TEXT, PRIMARY KEY (alert_id, opp_id)
+);
 CREATE TABLE IF NOT EXISTS scout_runs (
   id INTEGER PRIMARY KEY, started_at TEXT, finished_at TEXT, source TEXT,
   fetched INTEGER DEFAULT 0, added INTEGER DEFAULT 0, error TEXT
 );
 """
+
+# Columns added after first release: applied to existing databases on startup.
+MIGRATIONS = {
+    "partners": [("billing_status", "TEXT DEFAULT 'none'"), ("billing_ref", "TEXT"), ("paid_until", "TEXT"), ("stripe_subscription", "TEXT")],
+}
 
 _local = threading.local()
 _init_lock = threading.Lock()
@@ -80,6 +97,12 @@ def conn():
         with _init_lock:
             if path not in _initialised:
                 c.executescript(SCHEMA)
+                for table, cols in MIGRATIONS.items():
+                    have = {r[1] for r in c.execute("PRAGMA table_info(%s)" % table)}
+                    for name, decl in cols:
+                        if name not in have:
+                            c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, name, decl))
+                c.commit()
                 _initialised.add(path)
         if not hasattr(_local, "conns"):
             _local.conns = {}

@@ -21,6 +21,7 @@ write_files:
     content: |
       # Runtime settings for the container. Fill in later and run: musa-update --force
       MUSA_SCOUT_HOURS=6
+      MUSA_WHATSAPP=+35794031786
       ANTHROPIC_API_KEY=
       WA_VERIFY_TOKEN=
       WA_APP_SECRET=
@@ -45,7 +46,7 @@ write_files:
         docker build -t musa:latest musa
         docker rm -f musa 2>/dev/null || true
         docker run -d --name musa --restart unless-stopped -p 127.0.0.1:8080:8080 \
-          --env-file /etc/musa/app.env -e MUSA_ADMIN_PASSWORD="$MUSA_ADMIN_PASSWORD" \
+          --env-file /etc/musa/app.env -e MUSA_ADMIN_PASSWORD="$MUSA_ADMIN_PASSWORD" -e MUSA_SITE_URL="https://$DOMAIN" \
           -v musa-data:/data musa:latest
         echo "musa updated to $NEW"
       else

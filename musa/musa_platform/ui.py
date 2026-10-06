@@ -1,5 +1,7 @@
 """Server-rendered pages. Every value that reaches HTML goes through e()."""
 from html import escape
+import json
+import os
 from urllib.parse import quote, urlencode
 
 from .compliance import CONSENT_TEXT, RETENTION_DAYS
@@ -31,38 +33,69 @@ def consent_box(kind, name="consent"):
             '<a href="/privacy">Privacy notice</a>.</span></label>' % (name, name, kind, e(CONSENT_TEXT[kind])))
 
 
-NAV = [("/check", "Scam Shield"), ("/opportunities", "Opportunities"), ("/match", "Match & CV"), ("/ask", "Ask"), ("/pricing", "Pricing")]
+NAV = [("/check", "Scam Shield"), ("/opportunities", "Opportunities"), ("/guides", "Guides"), ("/match", "Match & CV"), ("/ask", "Ask"), ("/pricing", "Pricing")]
 
 
-def layout(title, body, active="", description="", admin=False, flash=None):
+def site_url():
+    return os.environ.get("MUSA_SITE_URL", "").rstrip("/")
+
+
+def whatsapp_number():
+    return "".join(ch for ch in os.environ.get("MUSA_WHATSAPP", "") if ch.isdigit())
+
+
+def wa_link(text):
+    n = whatsapp_number()
+    return "https://wa.me/%s?%s" % (n, urlencode({"text": text})) if n else ""
+
+
+DEFAULT_DESC = "Check job and visa offers before you pay. Verified opportunities and hiring for the Pakistan–Cyprus corridor."
+
+
+def head_meta(title, description, path, jsonld):
+    """Canonical URL, Open Graph and JSON-LD for public pages (search and WhatsApp/Facebook link previews)."""
+    base = site_url()
+    out = ['<meta property="og:title" content="%s">' % e(title), '<meta property="og:description" content="%s">' % e(description),
+           '<meta property="og:type" content="website">', '<meta property="og:site_name" content="MUSA Corridor">', '<meta name="twitter:card" content="summary">']
+    if base and path is not None:
+        out.append('<link rel="canonical" href="%s%s">' % (e(base), e(path)))
+        out.append('<meta property="og:url" content="%s%s">' % (e(base), e(path)))
+    for block in ([jsonld] if isinstance(jsonld, dict) else (jsonld or [])):
+        out.append('<script type="application/ld+json">%s</script>' % json.dumps(block, ensure_ascii=False).replace("</", "<\\/"))
+    return "".join(out)
+
+
+def layout(title, body, active="", description="", admin=False, flash=None, path=None, jsonld=None, noindex=False, lang="en"):
     nav = "".join('<a href="%s"%s>%s</a>' % (h, ' aria-current="page"' if h == active else "", e(t)) for h, t in NAV)
     nav += '<a class="cta" href="/business">For business</a>'
     if admin:
         nav = "".join('<a href="%s"%s>%s</a>' % (h, ' aria-current="page"' if h == active else "", t) for h, t in [
             ("/admin", "Overview"), ("/admin/opportunities", "Opportunities"), ("/admin/orders", "Orders"), ("/admin/partners", "Partners"),
-            ("/admin/employers", "Employers"), ("/admin/leads", "WhatsApp leads"), ("/admin/scout", "Scout"), ("/admin/compliance", "Compliance"), ("/admin/revenue", "Revenue")])
+            ("/admin/employers", "Employers"), ("/admin/alerts", "Alerts"), ("/admin/leads", "WhatsApp leads"), ("/admin/scout", "Scout"), ("/admin/compliance", "Compliance"), ("/admin/revenue", "Revenue")])
     flash_html = ""
     if flash:
         kind, msg = flash
         flash_html = '<div class="wrap" style="padding-top:16px"><div class="flash %s" role="status">%s</div></div>' % ("err" if kind == "err" else "", e(msg))
     return """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<html lang="%s"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>%s</title><meta name="description" content="%s">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@500;600&family=Public+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/static/site.css"><link rel="icon" href="data:image/svg+xml,%%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%%3E%%3Crect width='32' height='32' rx='6' fill='%%230c4a5c'/%%3E%%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='Arial' font-weight='700'%%3EM%%3C/text%%3E%%3C/svg%%3E">
+<link rel="stylesheet" href="/static/site.css">%s<link rel="icon" href="data:image/svg+xml,%%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%%3E%%3Crect width='32' height='32' rx='6' fill='%%230c4a5c'/%%3E%%3Ctext x='16' y='22' font-size='16' text-anchor='middle' fill='white' font-family='Arial' font-weight='700'%%3EM%%3C/text%%3E%%3C/svg%%3E">
 %s</head><body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="site"><div class="wrap"><a class="logo" href="%s"><b>MUSA</b><span>PAK → CYP · VERIFIED CORRIDOR%s</span></a><nav class="main" aria-label="Main">%s</nav></div></header>
 %s<main id="main">%s</main>
 <footer class="site"><div class="wrap">
 <div><b style="color:var(--ink)">MUSA Corridor</b><p>Verification-first help for work, study and hiring between Pakistan, Cyprus and the EU. We do not sell jobs or visas.</p></div>
-<ul><li><a href="/check">Scam Shield</a></li><li><a href="/opportunities">Opportunities</a></li><li><a href="/match">Match &amp; EU CV</a></li><li><a href="/ask">Ask the concierge</a></li></ul>
+<ul><li><a href="/check">Scam Shield</a></li><li><a href="/ur" hreflang="ur-Latn">Roman Urdu</a></li><li><a href="/opportunities">Opportunities</a></li><li><a href="/match">Match &amp; EU CV</a></li><li><a href="/ask">Ask the concierge</a></li></ul>
 <ul><li><a href="/business">For employers &amp; agencies</a></li><li><a href="/business/partners">Become a verified partner</a></li><li><a href="/business/employers">Request candidates</a></li><li><a href="/pricing">Pricing</a></li></ul>
-<ul><li><a href="/privacy">Privacy (GDPR)</a></li><li><a href="/privacy/request">Your data rights</a></li><li><a href="/agents">AI &amp; automation transparency</a></li><li><a href="/terms">Terms</a></li></ul>
-</div></footer></body></html>""" % (
-        e(title + ("" if title.startswith("MUSA") else " · MUSA Corridor")), e(description or "Check job and visa offers before you pay. Verified opportunities and hiring for the Pakistan–Cyprus corridor."),
-        '<meta name="robots" content="noindex">' if admin else "", "/admin" if admin else "/", " · ADMIN" if admin else "", nav, flash_html, body)
+<ul>%s<li><a href="/privacy">Privacy (GDPR)</a></li><li><a href="/privacy/request">Your data rights</a></li><li><a href="/agents">AI &amp; automation transparency</a></li><li><a href="/terms">Terms</a></li></ul>
+</div></footer></body></html>""" % (lang,
+        e(title + ("" if title.startswith("MUSA") else " · MUSA Corridor")), e(description or DEFAULT_DESC),
+        "" if admin else head_meta(title, description or DEFAULT_DESC, path, jsonld),
+        '<meta name="robots" content="noindex">' if (admin or noindex) else "", "/admin" if admin else "/", " · ADMIN" if admin else "", nav, flash_html, body,
+        ('<li><a href="%s" target="_blank" rel="noopener">WhatsApp +%s</a></li>' % (e(wa_link("Assalam o alaikum, I have a question about an offer.")), e(whatsapp_number()))) if whatsapp_number() else "")
 
 
 # ---------------- public pages ----------------
@@ -129,7 +162,7 @@ def home(stats, latest):
  <p class="muted">GDPR consent on every form, data export and erasure on request, published retention periods, an audit trail for every decision, and an AI transparency page listing every agent and what a human must approve.</p></div>
  <div class="stack"><a class="btn" href="/agents">See our agents</a><a class="btn" href="/privacy">Read the privacy notice</a></div>
 </div></div></section>
-""" % (mrz, cards), active="/")
+""" % (mrz, cards), active="/", path="/", jsonld={"@context": "https://schema.org", "@type": "Organization", "name": "MUSA Corridor", "description": DEFAULT_DESC})
 
 
 def check_page(text="", result=None):
@@ -147,17 +180,18 @@ def check_page(text="", result=None):
             e(h["severity"]), e(h["severity"]), e(h["name"]), e(h["evidence"]), e(h["response"]), e(h.get("response_ur", ""))) for h in hits)
         res = """<div class="panel result" aria-live="polite">%s<p>%s</p>
 <div><div class="meter" role="img" aria-label="Risk %d out of 100"><i style="width:%d%%"></i></div><small class="muted">Risk %d/100 (%s) · %d warning sign(s)</small></div>
-%s<div class="note">Want it checked against official records before you pay? <a href="/report">Order a Verify-Before-You-Pay report (Rs 4,500)</a>.</div></div>""" % (
-            stamp, e(msg), d["risk"]["score"], min(100, d["risk"]["score"]), d["risk"]["score"], e(d["risk"]["band"]), len(hits), items)
+%s<div class="note">Want it checked against official records before you pay? <a href="/report">Order a Verify-Before-You-Pay report (Rs 4,500)</a>%s.</div></div>""" % (
+            stamp, e(msg), d["risk"]["score"], min(100, d["risk"]["score"]), d["risk"]["score"], e(d["risk"]["band"]), len(hits), items,
+            (' or <a href="%s" target="_blank" rel="noopener">ask us on WhatsApp</a>' % e(wa_link("Assalam o alaikum, Scam Shield found %d warning sign(s): %s. I want a report." % (len(hits), ", ".join(h["id"] for h in hits))))) if whatsapp_number() else "")
     return layout("Scam Shield", """<section><div class="wrap split">
-<form class="stack" method="post" action="/check"><span class="eyebrow">Scam Shield</span><h1>Is this offer a scam?</h1>
+<form class="stack" method="post" action="/check"><div class="row" style="justify-content:space-between"><span class="eyebrow">Scam Shield</span><a class="chip" href="/ur/check" hreflang="ur-Latn">Roman Urdu mein</a></div><h1>Is this offer a scam?</h1>
 <p class="muted">Paste what the agent sent: WhatsApp message, ad or offer letter. English or Roman Urdu. We check it against 20 patterns from real cases. The text is processed and discarded, not stored.</p>
 <label for="text">Agent's message</label><textarea id="text" name="text" required>%s</textarea>
 <div class="row"><button class="btn copper" type="submit">Check for warning signs</button><a class="btn" href="/check?example=1">Try an example</a></div></form>
 <div class="stack">%s<div class="card"><h3>Five rules that protect your money</h3><ol class="muted" style="margin:0;padding-left:18px">
 <li>Get the OEP licence and BEOE permission number, and check both on beoe.gov.pk yourself.</li><li>Contract first, payment second.</li>
 <li>Pay the company, never a personal account or wallet, and get a receipt.</li><li>No one can guarantee a visa.</li><li>Never travel on a visit visa to work.</li></ol></div></div>
-</div></section>""" % (e(text), res), active="/check")
+</div></section>""" % (e(text), res), active="/check", path="/check", description="Paste a recruiter's message and see known scam warning signs instantly. Free, English and Roman Urdu.")
 
 
 def opportunities_page(rows, sectors, f, total):
@@ -174,9 +208,10 @@ def opportunities_page(rows, sectors, f, total):
  <div style="align-self:end"><button class="btn primary" type="submit">Filter</button></div>
 </form>
 <div class="opps">%s</div>
+%s
 <p class="muted">API: <a href="/api/opportunities">/api/opportunities</a> (JSON)</p>
 </div></section>""" % (fmt_int(total), opts([""] + sectors, f.get("sector", "")), " selected" if f.get("tier") == "0" else "",
-                       " selected" if f.get("tier") == "2" else "", " selected" if f.get("visa") == "1" else "", e(f.get("q", "")), cards), active="/opportunities")
+                       " selected" if f.get("tier") == "2" else "", " selected" if f.get("visa") == "1" else "", e(f.get("q", "")), cards, alerts_cta(f.get("sector") or None)), active="/opportunities", path="/opportunities", description="Live Cyprus and EU opportunities for Pakistani workers, each labelled by source and trust level.")
 
 
 def opportunity_detail(o):
@@ -200,7 +235,7 @@ def opportunity_detail(o):
         {"lead": "We found this listing on a third-party site. Nobody has confirmed the employer, the job or the visa route yet.",
          "signal": "This comes from an official government source, but you still need to confirm the OEP and the employer.",
          "verified": "A MUSA analyst confirmed the employer and the recruiter's licence. Fees and contract still need checking for your case.",
-         "flagged": "We found problems with this listing. Do not pay for it.", "expired": "This listing has not been seen for 45 days."}.get(o["status"], "")), active="/opportunities")
+         "flagged": "We found problems with this listing. Do not pay for it.", "expired": "This listing has not been seen for 45 days."}.get(o["status"], "")), active="/opportunities", path="/opportunities/%d" % o["id"])
 
 
 def match_page(results=None, profile=None, token=None, live=None, flash=None):
@@ -228,11 +263,11 @@ def match_page(results=None, profile=None, token=None, live=None, flash=None):
 <label>Education<input name="education" value="%s"></label>
 <label>Contact (optional)<span class="hint">Only if you want verified employers to reach you through MUSA</span><input name="contact" maxlength="80"></label>
 <label class="check"><input type="checkbox" name="relocation_ready" id="reloc"> <span>I am ready to relocate within 3 months</span></label>
-%s<button class="btn primary" type="submit">Match me</button></form>
+%s<label class="check"><input type="checkbox" name="share_ok" id="share-ok"> <span>%s</span></label><button class="btn primary" type="submit">Match me</button></form>
 <div>%s</div></div></section>""" % (
         e(p.get("name", "")), e(p.get("headline", "")), e(", ".join(p.get("skills", []))), e(p.get("years", "")),
         e(", ".join("%s:%s" % kv for kv in (p.get("languages") or {}).items())), e(", ".join(p.get("certifications", []))),
-        e(p.get("experience", "")), e(p.get("education", "")), consent_box("profile"),
+        e(p.get("experience", "")), e(p.get("education", "")), consent_box("profile"), e(CONSENT_TEXT["share"]),
         out or '<div class="card stack"><h3>What employers look for</h3><p class="muted">Construction: masonry, formwork, rebar. Hospitality: line cook, housekeeping, food service (English B1). Logistics: picking, forklift licence. Agriculture: harvesting. Care: caregiving and first aid.</p></div>'), active="/match", flash=flash)
 
 
@@ -247,7 +282,24 @@ def cv_page(p, token):
 <h2>Mobility</h2><p>%s</p></article></div></section>""" % (
         e(token), e(p.get("name")), e(p.get("headline")), e(", ".join(p.get("skills", [])) or "—"), e(p.get("experience") or "—"),
         e(p.get("years", 0)), e(langs), e(", ".join(p.get("certifications", [])) or "—"), e(p.get("education") or "—"),
-        "Ready to relocate to the EU within 3 months." if p.get("relocation_ready") else "Relocation timing to be agreed."))
+        "Ready to relocate to the EU within 3 months." if p.get("relocation_ready") else "Relocation timing to be agreed."), noindex=True)
+
+
+def shortlist_page(req, items):
+    cards = []
+    for it in items:
+        p = it["profile"]
+        langs = ", ".join("%s (%s)" % (k.upper(), v) for k, v in (p.get("languages") or {}).items()) or "—"
+        cards.append("""<article class="cv" style="padding:24px"><div class="row" style="justify-content:space-between"><h2 style="margin:0;font-size:1.3rem;font-family:var(--display);color:var(--ink);border:0;text-transform:none;letter-spacing:0">%s</h2>
+<span class="chip ok">Match %d%%</span></div><p class="muted" style="margin:4px 0 10px">%s · candidate ref <span class="mono">%s</span></p>
+<p><b>Skills:</b> %s</p><p><b>Experience:</b> %s years. %s</p><p><b>Languages:</b> %s · <b>Certificates:</b> %s</p><p class="muted">%s</p></article>""" % (
+            e(p.get("name")), it["score"], e(it["role"] or ""), e(it["profile_token"][:8].upper()), e(", ".join(p.get("skills", []))),
+            e(p.get("years", 0)), e((p.get("experience") or "")[:400]), e(langs), e(", ".join(p.get("certifications", [])) or "—"),
+            "Ready to relocate within 3 months." if p.get("relocation_ready") else "Relocation timing to be agreed."))
+    return layout("Shortlist for " + req["company"], """<section><div class="wrap stack" style="max-width:860px"><span class="eyebrow">Candidate shortlist · confidential</span>
+<h1 style="font-size:clamp(1.6rem,4vw,2.4rem)">Shortlist for %s</h1><p class="muted">%s · %s. Candidates agreed to share their CV with verified employers. Contact details are held by MUSA; reply with the candidate references you want to interview and we arrange it, together with your licensed agency, which handles the permit.</p>
+<div class="stack">%s</div><p class="muted">Placement fee is payable per candidate hired, as agreed in your service terms. This link is private: please do not forward it.</p></div></section>""" % (
+        e(req["company"]), e(req["sector"]), e(req["roles"][:200]), "".join(cards) or '<p class="muted">No candidates have been added yet.</p>'), noindex=True)
 
 
 def ask_page(question="", result=None, examples=()):
@@ -284,7 +336,7 @@ def pricing_page(products):
 <h2 style="margin-top:28px">For businesses</h2><div class="plans">%s</div>
 <p class="note">Payments go only to MUSA's registered business accounts. If anyone gives you a personal account and claims it's MUSA, don't pay.</p></div></section>""" % (
         "".join(plan(p, p["id"] == "verify_basic", hrefs[p["id"]]) for p in worker),
-        "".join(plan(p, p["id"] == "agency_saas", hrefs[p["id"]]) for p in biz)), active="/pricing")
+        "".join(plan(p, p["id"] == "agency_saas", hrefs[p["id"]]) for p in biz)), active="/pricing", path="/pricing")
 
 
 def report_page(cfg, product="verify_basic", opp=None, error=None):
@@ -323,7 +375,7 @@ def order_page(o, cfg, methods, flash=None):
     return layout("Order " + o["ref"], """<section><div class="wrap stack" style="max-width:760px">
 <span class="eyebrow">Order</span><h1 class="mono" style="font-size:clamp(1.4rem,4vw,2rem)">%s</h1>
 <div class="row"><span class="chip">%s</span><span class="chip">%s</span></div>
-<p class="muted">Keep this page's link to check your order status.</p>%s</div></section>""" % (e(o["ref"]), e(p.get("name", o["product"])), e(status), pay), flash=flash)
+<p class="muted">Keep this page's link to check your order status.</p>%s</div></section>""" % (e(o["ref"]), e(p.get("name", o["product"])), e(status), pay), flash=flash, noindex=True)
 
 
 def business_page(products):
@@ -342,7 +394,7 @@ def business_page(products):
 <div class="plan"><span class="eyebrow">Universities</span><h3>Student pipeline</h3><div class="price">Commission</div><p class="muted">Admission-ready, document-verified applicants under a signed agent agreement. Accredited institutions only (CYQAA).</p><a class="btn" href="/business/partners">Talk to us</a></div>
 </div></section>
 <section><div class="wrap card stack"><h2>What we will not do</h2><p class="muted">Recruit without the required licences, charge workers placement fees, hide who receives a payment, or let a partner keep a badge after verified complaints. Partners are checked (KYB) before activation and monitored afterwards.</p></div></section>""" % (
-        fmt_int(by["oep_trust_badge"]["price"]), fmt_int(by["agency_saas"]["price"]), fmt_int(by["employer_sourcing"]["price"])), active="")
+        fmt_int(by["oep_trust_badge"]["price"]), fmt_int(by["agency_saas"]["price"]), fmt_int(by["employer_sourcing"]["price"])), active="", path="/business", description="Verified candidates, recruiter badges and case tooling for employers, agencies and universities in the Pakistan–Cyprus corridor.")
 
 
 def partner_apply_page(error=None):
@@ -380,8 +432,30 @@ def partner_badge(p):
 <span class="stamp green">Verified partner</span><h1>%s</h1><div class="card"><dl style="margin:0;display:grid;grid-template-columns:max-content 1fr;gap:8px 16px">
 <dt class="muted">Type</dt><dd style="margin:0">%s</dd><dt class="muted">Country</dt><dd style="margin:0">%s</dd><dt class="muted">Licence</dt><dd style="margin:0" class="mono">%s</dd>
 <dt class="muted">Website</dt><dd style="margin:0">%s</dd><dt class="muted">Verified on</dt><dd style="margin:0" class="mono">%s</dd></dl></div>
-<p class="muted">MUSA checked this organisation's licence and registration on the date shown. A badge does not guarantee any specific job or visa. Always check each offer's BEOE permission and contract. Report a problem: <a href="/ask">contact us</a>.</p></div></section>""" % (
+<p class="muted">MUSA checked this organisation's licence and registration on the date shown. Partners pay a subscription; verification standards are the same for every partner and badges are revoked after verified complaints. A badge does not guarantee any specific job or visa. Always check each offer's BEOE permission and contract. Report a problem: <a href="/ask">contact us</a>.</p></div></section>""" % (
         e(p["org_name"]), e(p["org_type"]), e(p["country"]), e(p["licence_no"] or "—"), e(p["website"] or "—"), e((p["decided_at"] or "")[:10])))
+
+
+def partner_billing_page(p, plan, cfg, flash=None):
+    status = {"unpaid": "Waiting for payment", "claimed": "Payment reported — we are confirming it", "active": "Active",
+              "lapsed": "Lapsed — renew to restore your badge", "none": "Not yet approved"}.get(p["billing_status"] or "none", p["billing_status"])
+    rows = []
+    if plan.get("stripe_link"):
+        url = plan["stripe_link"] + ("&" if "?" in plan["stripe_link"] else "?") + urlencode({"client_reference_id": p["billing_ref"]})
+        rows.append('<div class="card row" style="justify-content:space-between"><b>Card (monthly, cancel any time)</b><a class="btn primary" href="%s" target="_blank" rel="noopener">Subscribe €%s/%s</a></div>' % (e(url), e(plan["eur"]), e(plan["interval"])))
+    for m in cfg.get("methods", []):
+        if m["type"] == "bank" and m.get("account_title") and (m.get("iban") or m.get("raast_id")):
+            rows.append('<div class="card"><b>%s</b><p class="mono" style="margin:6px 0 0">%s</p></div>' % (e(m["label"]), e(" · ".join(x for x in [m.get("bank"), m.get("iban"), ("Raast " + m["raast_id"]) if m.get("raast_id") else "", m["account_title"]] if x))))
+    pay = ""
+    if p["status"] == "approved" and p["billing_status"] in ("unpaid", "lapsed"):
+        pay = """<h2>Activate your badge</h2>%s<p class="note">For bank transfers, write <b class="mono">%s</b> in the payment note.</p>
+<form method="post" action="/partner/billing/%s/paid" class="row"><button class="btn" type="submit">I have paid by bank transfer</button></form>""" % (
+            "".join(rows) or '<div class="card"><p class="muted" style="margin:0">We will email you payment details within one working day.</p></div>', e(p["billing_ref"]), e(p["billing_ref"]))
+    live = ('<p>Your public badge page: <a href="/partners/%s">/partners/%s</a></p>' % (e(p["slug"]), e(p["slug"]))) if p["billing_status"] == "active" and p["slug"] else ""
+    return layout("Partner billing", """<section><div class="wrap stack" style="max-width:760px"><span class="eyebrow">Partner billing</span>
+<h1 style="font-size:clamp(1.6rem,4vw,2.4rem)">%s</h1><div class="row"><span class="chip">%s · €%s/%s</span><span class="chip%s">%s</span></div>%s%s
+<p class="muted">Every partner passes the same verification checks, whatever they pay. A badge is revoked after verified complaints, even on a paid plan.</p></div></section>""" % (
+        e(p["org_name"]), e(plan["name"]), e(plan["eur"]), e(plan["interval"]), " ok" if p["billing_status"] == "active" else "", e(status), live, pay), flash=flash, noindex=True)
 
 
 def agents_page(registry):
@@ -401,6 +475,7 @@ def privacy_page():
 <tr><td>Concierge questions</td><td>Answer your question</td><td>Not stored by MUSA. Sent to Anthropic to generate AI answers when AI mode is on.</td></tr>
 <tr><td>Report orders</td><td>Contract (Art. 6(1)(b)); accounting law</td><td>%d years</td></tr>
 <tr><td>CV / match profiles</td><td>Consent (Art. 6(1)(a)); withdraw any time</td><td>%d months, or until you delete it</td></tr>
+<tr><td>Job alerts (WhatsApp number, sectors)</td><td>Consent (Art. 6(1)(a)); confirmed from your own WhatsApp</td><td>%d months, or until you send ALERTS OFF. Unconfirmed sign-ups: 7 days.</td></tr>
 <tr><td>Employer requests</td><td>Pre-contract steps (Art. 6(1)(b))</td><td>%d months</td></tr>
 <tr><td>Partner applications</td><td>Pre-contract steps; verification (KYB)</td><td>While the partnership lasts</td></tr>
 <tr><td>WhatsApp leads</td><td>Answer your request</td><td>WhatsApp number, dates and pattern IDs, never message text</td></tr>
@@ -408,7 +483,7 @@ def privacy_page():
 <h2>Your rights</h2><p>You can ask for a copy of your data, ask us to correct or delete it, object to processing, or withdraw consent. <a href="/privacy/request">Make a request</a>. We reply within one month. You can also complain to your data protection authority (in Cyprus, the Commissioner for Personal Data Protection).</p>
 <h2>Processors</h2><p>Hosting provider (EU region recommended), Anthropic (AI answers, only when AI mode is on), Meta WhatsApp Business (if you message us there), and payment providers (Stripe, JazzCash, Easypaisa, banks) for payments you make.</p>
 <h2>Cookies</h2><p>We use no tracking or advertising cookies. The site works without any cookies; the admin area uses your browser's built-in login.</p></div></section>""" % (
-        r["orders"] // 365, r["profiles"] // 30, r["employer_requests"] // 30))
+        r["orders"] // 365, r["profiles"] // 30, r["alerts"] // 30, r["employer_requests"] // 30))
 
 
 def terms_page():
@@ -424,8 +499,51 @@ def privacy_request_page(done=False):
 %s<label>The email or WhatsApp number you used<input name="contact" required maxlength="120"></label>
 <label>Request<select name="kind"><option value="export">Send me a copy of my data</option><option value="erase">Delete my data</option></select></label>
 <button class="btn primary" type="submit">Send request</button><small class="muted">We will contact you at that address to confirm it is you before acting. Answer within one month.</small></form>
-<div class="card"><h3>Faster options</h3><p class="muted">CV profiles can be deleted instantly from your private CV link. On WhatsApp, send STOP to stop all messages.</p></div></div></section>""" % (
+<div class="card"><h3>Faster options</h3><p class="muted">CV profiles can be deleted instantly from your private CV link. Job alerts stop instantly with ALERTS OFF on WhatsApp. On WhatsApp, send STOP to stop all messages.</p></div></div></section>""" % (
         '<div class="flash">Request received. We will contact you to confirm your identity, then act within one month.</div>' if done else ""))
+
+
+def alerts_cta(sector=None):
+    href = "/alerts" + (("?sector=" + quote(sector)) if sector else "")
+    return ('<div class="card stack"><span class="eyebrow">Free · WhatsApp</span><h3>Get job alerts%s</h3><p class="muted">One WhatsApp message when an opening from an official source or a MUSA-checked employer appears. '
+            'No agents, no spam, stop any time.</p><a class="btn primary" href="%s">Turn on alerts</a></div>') % ((" for " + e(sector.lower())) if sector else "", e(href))
+
+
+def alerts_page(sectors, chosen=(), error=None, lang="en"):
+    boxes = "".join('<label class="check"><input type="checkbox" name="sector" value="%s"%s> <span>%s</span></label>' % (
+        e(s), " checked" if s in chosen else "", e(s)) for s in sectors)
+    off = "" if whatsapp_number() else '<div class="flash err">Alerts open once the MUSA WhatsApp number is configured.</div>'
+    return layout("Job alerts on WhatsApp", """<section><div class="wrap split">
+<form class="stack" method="post" action="/alerts"><span class="eyebrow">Job alerts · free</span><h1>Hear about checked openings first</h1>
+<p class="muted">Pick your sectors. When an opening from an official source or a MUSA-checked employer appears, we send you one WhatsApp message with the link and the checks to do before paying anyone.</p>%s%s
+<fieldset class="card stack" style="margin:0"><legend><b>Sectors</b> <small class="muted">(none ticked = all)</small></legend><div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px">%s</div></fieldset>
+<label>Language<select name="lang"><option value="en"%s>English</option><option value="ur"%s>Roman Urdu</option></select></label>
+%s<button class="btn primary" type="submit"%s>Continue to WhatsApp</button></form>
+<div class="stack"><div class="card stack"><h3>How it works</h3><ol class="muted" style="margin:0;padding-left:18px"><li>Choose sectors and continue.</li><li>Send the code we show you to MUSA on WhatsApp. That confirms the number is yours.</li><li>Get one message per checked opening. Reply <b>ALERTS OFF</b> to stop.</li></ol></div>
+<div class="card"><h3>What we never send</h3><p class="muted">Agent adverts, "visa guaranteed" offers, or anything we have not traced to an official source or a checked employer. MUSA never asks for money on WhatsApp outside its published business accounts.</p></div></div>
+</div></section>""" % (('<div class="flash err">%s</div>' % e(error)) if error else "", off, boxes, " selected" if lang != "ur" else "", " selected" if lang == "ur" else "",
+                      consent_box("alerts"), "" if whatsapp_number() else " disabled"),
+                  active="/opportunities", path="/alerts", description="Free WhatsApp alerts for checked Cyprus job openings for Pakistani workers. Double opt-in, stop any time.")
+
+
+def alerts_confirm_page(a):
+    msg = "ALERTS " + a["code"]
+    link = wa_link(msg)
+    return layout("Confirm your job alerts", """<section><div class="wrap stack" style="max-width:720px"><span class="stamp amber">One step left</span>
+<h1>Send this code on WhatsApp</h1><p>To switch alerts on, send this message to MUSA from the WhatsApp number that should get them:</p>
+<div class="mrz" style="font-size:1.4rem;text-align:center"><b>%s</b></div>
+<div class="row"><a class="btn primary" href="%s" target="_blank" rel="noopener">Open WhatsApp and send</a></div>
+<p class="muted">The code expires in 7 days. If you change your mind, just don't send it: nothing else is stored. Already subscribed? <a href="/alerts/stop/%s">Delete this sign-up</a>.</p></div></section>""" % (
+        e(msg), e(link), e(a["token"])), noindex=True)
+
+
+def alerts_stop_page(token, done=False):
+    if done:
+        body = '<span class="stamp green">Stopped</span><h1>Alerts are off</h1><p>Your subscription was deleted. You will get no more alerts.</p><a class="btn" href="/opportunities">Browse opportunities</a>'
+    else:
+        body = ('<h1>Stop job alerts?</h1><p>This deletes your alert subscription.</p><form method="post" action="/alerts/stop/%s">'
+                '<button class="btn copper" type="submit">Stop alerts and delete</button></form>') % e(token)
+    return layout("Stop job alerts", '<section><div class="wrap stack" style="max-width:720px">%s</div></section>' % body, noindex=True)
 
 
 def not_found():

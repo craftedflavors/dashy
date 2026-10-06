@@ -1,4 +1,6 @@
 """Admin console pages (behind HTTP Basic auth). Dense tables, actions as small POST forms."""
+from urllib.parse import urlencode
+
 from .ui import e, fmt_int, layout, status_chip, tier_chip
 
 
@@ -68,19 +70,21 @@ def partners(rows, flash=None):
         if p["status"] in ("pending", "in_review"):
             act = _form("/admin/partners/%d/approve" % p["id"], "Approve") + _form("/admin/partners/%d/reject" % p["id"], "Reject")
         elif p["status"] == "approved":
-            act = '<a href="/partners/%s">Badge page</a> ' % e(p["slug"]) + _form("/admin/partners/%d/revoke" % p["id"], "Revoke")
+            act = ('<a href="/partner/billing/%s">Billing link</a> ' % e(p["billing_ref"])) + _form("/admin/partners/%d/paid" % p["id"], "Mark paid +1 month") + \
+                (('<a href="/partners/%s">Badge</a> ' % e(p["slug"])) if p["billing_status"] == "active" else "") + _form("/admin/partners/%d/revoke" % p["id"], "Revoke")
         trs.append("<tr><td>%s<br><small class=\"muted\">%s · %s</small></td><td>%s</td><td class=\"mono\">%s<br>%s</td><td>%s<br><small>%s %s</small></td><td>%s</td><td><div class=\"row\">%s</div></td></tr>" % (
             e(p["org_name"]), e(p["org_type"]), e(p["country"]), e(p["tier"]), e(p["licence_no"] or "—"), e(p["registry_no"] or "—"),
-            e(p["contact_name"]), e(p["email"]), e(p["phone"] or ""), e(p["status"]), act))
+            e(p["contact_name"]), e(p["email"]), e(p["phone"] or ""), e(p["status"]) + "<br><small class=\"muted\">billing: %s%s</small>" % (
+                e(p["billing_status"] or "none"), (" until " + e(p["paid_until"][:10])) if p["paid_until"] else ""), act))
     return layout("Admin · Partners", """<section><div class="wrap stack"><h1>Partner applications (KYB)</h1>
-<p class="note">Approve only after: licence confirmed on the official register (BEOE / Cyprus Department of Labour), company registration confirmed, official contact details match, owner video call done.</p>%s</div></section>""" % _table(
+<p class="note">After approval, send the partner their billing link; the public badge goes live only once billing is active. Approve only after: licence confirmed on the official register (BEOE / Cyprus Department of Labour), company registration confirmed, official contact details match, owner video call done.</p>%s</div></section>""" % _table(
         ["Organisation", "Plan", "Licence / registry", "Contact", "Status", "Action"], trs), active="/admin/partners", admin=True, flash=flash)
 
 
 def employers(rows, flash=None):
     trs = "".join("<tr><td>%s<br><small class=\"muted\">%s · %s</small></td><td class=\"num\">%s</td><td><small>%s</small></td><td>%s<br><small>%s %s</small></td><td>%s</td><td>%s</td></tr>" % (
         e(r["company"]), e(r["sector"]), e(r["country"]), e(r["headcount"]), e(r["roles"]), e(r["contact_name"]), e(r["email"]), e(r["phone"] or ""), e(r["status"]),
-        _form("/admin/employers/%d/contacted" % r["id"], "Mark contacted") if r["status"] == "new" else "") for r in rows)
+        ('<a class="btn small" href="/admin/employers/%d">Build shortlist</a> ' % r["id"]) + (_form("/admin/employers/%d/contacted" % r["id"], "Mark contacted") if r["status"] == "new" else "")) for r in rows)
     return layout("Admin · Employers", '<section><div class="wrap stack"><h1>Employer requests</h1>%s</div></section>' % _table(
         ["Company", "#Headcount", "Roles", "Contact", "Status", "Action"], [trs] if trs else []), active="/admin/employers", admin=True, flash=flash)
 
@@ -113,11 +117,63 @@ def compliance(dsars, audit_rows, export_json=None, flash=None):
 
 
 def revenue(fc, actual, flash=None):
+    placements = actual.get("placements", 0)
     rows = "".join("<tr><td>%d</td><td class=\"num\">%s</td><td class=\"num\">%s</td><td class=\"num\">%s</td><td class=\"num\">%s</td></tr>" % (
         r["month"], fmt_int(r["revenue"]), fmt_int(r["mrr"]), fmt_int(r["profit"]), fmt_int(r["cumulative_profit"])) for r in fc["rows"])
     return layout("Admin · Revenue", """<section><div class="wrap stack"><h1>Revenue</h1>
 <div class="kpis"><div class="kpi"><b>%s</b><span>Paid orders, PKR (all time)</span></div><div class="kpi"><b>%s</b><span>Paid orders</span></div>
-<div class="kpi"><b>€%s</b><span>Forecast · 12 months (base)</span></div><div class="kpi"><b>€%s</b><span>Forecast · MRR month 12</span></div></div>
+<div class="kpi"><b>€%s</b><span>Placement fees (%d hires)</span></div><div class="kpi"><b>€%s</b><span>Forecast · 12 months (base)</span></div><div class="kpi"><b>€%s</b><span>Forecast · MRR month 12</span></div></div>
 <p class="muted">Forecast assumptions live in data/pricing.json. Replace them with real conversion data as soon as you have it.</p>%s</div></section>""" % (
-        fmt_int(actual["pkr"]), fmt_int(actual["count"]), fmt_int(fc["total_revenue"]), fmt_int(fc["ending_mrr"]),
+        fmt_int(actual["pkr"]), fmt_int(actual["count"]), fmt_int(actual.get("placement_eur", 0)), placements, fmt_int(fc["total_revenue"]), fmt_int(fc["ending_mrr"]),
         _table(["Month", "#Revenue €", "#MRR €", "#Profit €", "#Cumulative €"], [rows])), active="/admin/revenue", admin=True, flash=flash)
+
+
+PIPE = ("proposed", "sent", "interviewing", "hired", "rejected")
+
+
+def employer_detail(req, roles, role, candidates, shortlist, share_url, fee_eur, flash=None):
+    role_opts = "".join('<option%s>%s</option>' % (" selected" if r["title"] == role else "", e(r["title"])) for r in roles)
+    in_list = {s["profile_token"] for s in shortlist}
+    cand_rows = "".join("<tr><td>%s<br><small class=\"muted\">%s</small></td><td class=\"num\">%d%%</td><td><small>%s</small></td><td><small>%s</small></td><td>%s</td></tr>" % (
+        e(c["profile"]["name"]), e(", ".join(c["profile"].get("skills", [])[:6])), c["match"]["overall"], e(c["match"]["verdict"].lower()),
+        e("; ".join(c["match"]["gaps"][:2]) or "—"),
+        "in shortlist" if c["token"] in in_list else _form("/admin/employers/%d/shortlist" % req["id"], "Add",
+            '<input type="hidden" name="profile" value="%s"><input type="hidden" name="role" value="%s"><input type="hidden" name="score" value="%d">' % (e(c["token"]), e(role), c["match"]["overall"])))
+        for c in candidates)
+    sl_rows = "".join("<tr><td>%s</td><td><small>%s</small></td><td class=\"num\">%s%%</td><td>%s</td><td>%s</td></tr>" % (
+        e(s["name"]), e(s["role"]), e(s["score"]), e(s["status"]),
+        _form("/admin/shortlists/%d/status" % s["id"], "Update", '<select name="status">%s</select>' % "".join(
+            '<option%s>%s</option>' % (" selected" if st == s["status"] else "", st) for st in PIPE))) for s in shortlist)
+    hired = sum(1 for s in shortlist if s["status"] == "hired")
+    return layout("Admin · " + req["company"], """<section><div class="wrap stack"><a href="/admin/employers">← Employer requests</a>
+<h1>%s</h1><p class="muted">%s · %s · wants %s · contact %s, %s %s</p><div class="card"><b>Roles requested</b><p style="white-space:pre-line;margin:6px 0 0">%s</p></div>
+<div class="kpis"><div class="kpi"><b>%d</b><span>In shortlist</span></div><div class="kpi"><b>%d</b><span>Hired</span></div><div class="kpi"><b>€%s</b><span>Placement fees earned (€%s each)</span></div></div>
+<h2>Shortlist</h2>%s<div class="row"><span class="muted">Employer link (private):</span><a class="mono" href="%s" target="_blank" rel="noopener">%s</a></div>
+<h2>Find candidates</h2><form method="get" class="row"><label style="min-width:260px">Role template<select name="role">%s</select></label><button class="btn small" type="submit">Rank candidates</button></form>
+<p class="muted">Only candidates who opted in to sharing their CV are listed. Scores support your judgement; you choose who goes on the shortlist.</p>%s</div></section>""" % (
+        e(req["company"]), e(req["sector"]), e(req["country"]), e(req["headcount"]), e(req["contact_name"]), e(req["email"]), e(req["phone"] or ""), e(req["roles"]),
+        len(shortlist), hired, format(hired * fee_eur, ","), fee_eur,
+        _table(["Candidate", "Role", "#Score", "Status", "Update"], [sl_rows] if sl_rows else [], "No candidates added yet."), e(share_url), e(share_url), role_opts,
+        _table(["Candidate", "#Match", "Verdict", "Gaps", ""], [cand_rows] if cand_rows else [], "No opted-in candidates yet. They appear when people complete /match and tick the sharing box.")),
+        active="/admin/employers", admin=True, flash=flash)
+
+
+def alerts(st, items, msg_for, flash=None):
+    """Send queue: each checked opening with the subscribers who have not had it. Sending is a person's click."""
+    blocks = []
+    for it in items:
+        o = it["opp"]
+        rows = []
+        for a in it["todo"][:200]:
+            link = "https://wa.me/%s?%s" % (a["contact"], urlencode({"text": msg_for(o, a)}))
+            rows.append("<tr><td class=\"mono\">•••%s</td><td>%s</td><td>%s</td><td><div class=\"row\"><a class=\"btn small\" href=\"%s\" target=\"_blank\" rel=\"noopener\">Open in WhatsApp</a>%s</div></td></tr>" % (
+                e(a["contact"][-4:]), e(a["lang"]), e((a["sectors"] or "all").replace(",", ", ")), e(link),
+                _form("/admin/alerts/%d/%d/sent" % (a["id"], o["id"]), "Mark sent")))
+        blocks.append('<details class="card"%s><summary><b>%s</b> %s %s · <span class="muted">%d to send</span></summary><div style="margin-top:12px">%s</div></details>' % (
+            " open" if it["todo"] else "", e(o["title"]), status_chip(o["status"]), e(o["sector"] or "General"), len(it["todo"]),
+            _table(["Number", "Lang", "Sectors", "Send"], rows, "Everyone subscribed to this sector already has it.")))
+    kp = "".join('<div class="kpi"><b>%s</b><span>%s</span></div>' % (e(v), e(t)) for t, v in (("Active subscribers", st["active"]), ("Awaiting WhatsApp confirmation", st["pending"]), ("Alerts sent (7 days)", st["sent_7d"])))
+    return layout("Admin · Alerts", """<section><div class="wrap stack"><h1>Job alerts</h1><div class="kpis">%s</div>
+<p class="muted">Openings with status <b>official source</b> or <b>verified</b> from the last 14 days. Each subscriber confirmed by sending their code from their own WhatsApp.
+Send from the business WhatsApp, then mark sent. People who sent STOP to the bot are left out automatically.</p>%s</div></section>""" % (
+        kp, "".join(blocks) or '<p class="muted">No checked openings in the last 14 days. Verify leads under Opportunities first.</p>'), active="/admin/alerts", admin=True, flash=flash)
