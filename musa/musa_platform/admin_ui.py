@@ -1,4 +1,6 @@
 """Admin console pages (behind HTTP Basic auth). Dense tables, actions as small POST forms."""
+from urllib.parse import urlencode
+
 from .ui import e, fmt_int, layout, status_chip, tier_chip
 
 
@@ -154,3 +156,24 @@ def employer_detail(req, roles, role, candidates, shortlist, share_url, fee_eur,
         _table(["Candidate", "Role", "#Score", "Status", "Update"], [sl_rows] if sl_rows else [], "No candidates added yet."), e(share_url), e(share_url), role_opts,
         _table(["Candidate", "#Match", "Verdict", "Gaps", ""], [cand_rows] if cand_rows else [], "No opted-in candidates yet. They appear when people complete /match and tick the sharing box.")),
         active="/admin/employers", admin=True, flash=flash)
+
+
+def alerts(st, items, msg_for, flash=None):
+    """Send queue: each checked opening with the subscribers who have not had it. Sending is a person's click."""
+    blocks = []
+    for it in items:
+        o = it["opp"]
+        rows = []
+        for a in it["todo"][:200]:
+            link = "https://wa.me/%s?%s" % (a["contact"], urlencode({"text": msg_for(o, a)}))
+            rows.append("<tr><td class=\"mono\">•••%s</td><td>%s</td><td>%s</td><td><div class=\"row\"><a class=\"btn small\" href=\"%s\" target=\"_blank\" rel=\"noopener\">Open in WhatsApp</a>%s</div></td></tr>" % (
+                e(a["contact"][-4:]), e(a["lang"]), e((a["sectors"] or "all").replace(",", ", ")), e(link),
+                _form("/admin/alerts/%d/%d/sent" % (a["id"], o["id"]), "Mark sent")))
+        blocks.append('<details class="card"%s><summary><b>%s</b> %s %s · <span class="muted">%d to send</span></summary><div style="margin-top:12px">%s</div></details>' % (
+            " open" if it["todo"] else "", e(o["title"]), status_chip(o["status"]), e(o["sector"] or "General"), len(it["todo"]),
+            _table(["Number", "Lang", "Sectors", "Send"], rows, "Everyone subscribed to this sector already has it.")))
+    kp = "".join('<div class="kpi"><b>%s</b><span>%s</span></div>' % (e(v), e(t)) for t, v in (("Active subscribers", st["active"]), ("Awaiting WhatsApp confirmation", st["pending"]), ("Alerts sent (7 days)", st["sent_7d"])))
+    return layout("Admin · Alerts", """<section><div class="wrap stack"><h1>Job alerts</h1><div class="kpis">%s</div>
+<p class="muted">Openings with status <b>official source</b> or <b>verified</b> from the last 14 days. Each subscriber confirmed by sending their code from their own WhatsApp.
+Send from the business WhatsApp, then mark sent. People who sent STOP to the bot are left out automatically.</p>%s</div></section>""" % (
+        kp, "".join(blocks) or '<p class="muted">No checked openings in the last 14 days. Verify leads under Opportunities first.</p>'), active="/admin/alerts", admin=True, flash=flash)

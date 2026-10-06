@@ -54,6 +54,13 @@ CREATE TABLE IF NOT EXISTS dsar (
   id INTEGER PRIMARY KEY, at TEXT, contact TEXT, kind TEXT, status TEXT DEFAULT 'open',
   resolved_at TEXT, note TEXT
 );
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, code TEXT UNIQUE NOT NULL, contact TEXT, sectors TEXT, lang TEXT DEFAULT 'en',
+  status TEXT DEFAULT 'pending', created_at TEXT, consent_at TEXT, confirmed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS alert_sends (
+  alert_id INTEGER NOT NULL, opp_id INTEGER NOT NULL, sent_at TEXT, PRIMARY KEY (alert_id, opp_id)
+);
 CREATE TABLE IF NOT EXISTS scout_runs (
   id INTEGER PRIMARY KEY, started_at TEXT, finished_at TEXT, source TEXT,
   fetched INTEGER DEFAULT 0, added INTEGER DEFAULT 0, error TEXT

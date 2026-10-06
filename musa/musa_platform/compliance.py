@@ -9,6 +9,7 @@ from . import db
 
 RETENTION_DAYS = {
     "profiles": 365,           # CV / match profiles: 12 months after creation
+    "alerts": 365,             # job-alert subscriptions: 12 months, then the person re-subscribes
     "employer_requests": 730,  # business enquiries: 24 months
     "orders": 2190,            # paid orders: 6 years (accounting records)
     "scans": 730,              # anonymous counters
@@ -16,11 +17,12 @@ RETENTION_DAYS = {
     "dsar": 1095,              # proof that requests were handled: 3 years
     "audit": 1095,
 }
-_DATE_COL = {"profiles": "created_at", "employer_requests": "created_at", "orders": "created_at",
+PENDING_ALERT_DAYS = 7  # unconfirmed alert sign-ups
+_DATE_COL = {"alerts": "created_at", "profiles": "created_at", "employer_requests": "created_at", "orders": "created_at",
              "scans": "created_at", "questions": "created_at", "dsar": "at", "audit": "at"}
 
 # Where personal data lives, and which column identifies the person.
-PERSONAL = {"orders": ["contact"], "profiles": ["contact"], "partners": ["email", "phone"],
+PERSONAL = {"orders": ["contact"], "profiles": ["contact"], "alerts": ["contact"], "partners": ["email", "phone"],
             "employer_requests": ["email", "phone"]}
 
 CONSENT_TEXT = {
@@ -28,6 +30,7 @@ CONSENT_TEXT = {
     "profile": "I agree that MUSA stores my profile to generate my CV and job matches (GDPR Art. 6(1)(a)). I can delete it at any time; otherwise it is deleted after 12 months.",
     "share": "Optional: MUSA may share my CV (without my contact details) with verified employers in Cyprus for roles I match. MUSA arranges any interview. I can withdraw this at any time by deleting my profile.",
     "partner": "I confirm I may share these business details for partner verification (KYB) and agree to be contacted about the partnership.",
+    "alerts": "I agree that MUSA sends me WhatsApp messages about new openings in the sectors I choose (GDPR Art. 6(1)(a)). I confirm by sending the code from my own WhatsApp. I can stop at any time with ALERTS OFF; otherwise the subscription is deleted after 12 months.",
     "employer": "I agree that MUSA uses these details to respond to our hiring request. Retention: 24 months.",
 }
 
@@ -37,6 +40,8 @@ def run_retention():
     for table, days in RETENTION_DAYS.items():
         cutoff = db.now_iso(-days)
         removed[table] = db.xc("DELETE FROM %s WHERE %s < ?" % (table, _DATE_COL[table]), (cutoff,))
+    removed["alerts"] += db.xc("DELETE FROM alerts WHERE status='pending' AND created_at < ?", (db.now_iso(-PENDING_ALERT_DAYS),))
+    db.x("DELETE FROM alert_sends WHERE alert_id NOT IN (SELECT id FROM alerts)")
     db.audit("agent:guardian", "retention.run", detail={"policy_days": RETENTION_DAYS})
     return removed
 
@@ -79,6 +84,7 @@ def erase(contact):
             else:
                 db.x("DELETE FROM %s WHERE id=?" % table, (r["id"],))
             done[table] = done.get(table, 0) + 1
+    db.x("DELETE FROM alert_sends WHERE alert_id NOT IN (SELECT id FROM alerts)")
     db.audit("admin", "dsar.erase", target=_mask(contact), detail=done)
     return done
 

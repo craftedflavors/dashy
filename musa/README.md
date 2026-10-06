@@ -48,6 +48,15 @@ docker build -t musa . && docker run -d -p 8080:8080 --env-file .env -v musa-dat
 
 **Employer shortlists (the €400-per-hire loop):** candidates can tick an optional box to share their CV with verified employers. In *Admin → Employers → Build shortlist*, MUSA ranks those candidates against a role template from the employer's sector, with the gaps explained. You add the best ones, and the employer gets a private link (`/shortlist/<token>`, not indexed by search engines) showing CVs **without contact details**, so interviews go through MUSA. Track each candidate as proposed, sent, interviewing, hired or rejected. Hires show up as placement fees on the revenue page. If a candidate deletes their profile, they disappear from every shortlist immediately.
 
+**Job alerts (`/alerts`, the repeat-visit loop):**
+- Workers pick sectors and language, then confirm by sending `ALERTS <code>` to MUSA's WhatsApp. This double opt-in means every number on the list wrote to you itself: it is proof of consent, and it opens the WhatsApp service window.
+- *Admin → Alerts* lists each opening from an official source or a verified employer in the last 14 days, with the subscribers who haven't had it yet. Each one has a prefilled WhatsApp link and a **Mark sent** button.
+- Unchecked leads are never pushed to anyone.
+- People who sent STOP to the bot drop out of the list automatically.
+- `ALERTS OFF` on WhatsApp, or the stop link in every alert, deletes the subscription.
+- Unconfirmed sign-ups are deleted after 7 days, and subscriptions after 12 months (see the privacy notice).
+- Every alert links back to Scam Shield and the report, so the list feeds report sales.
+
 **Growth engine (getting found):**
 - Six guides at `/guides/*`, written to answer what people actually search for: "Cyprus work visa from Pakistan", visa scams, how to check an OEP and BEOE permission, what a Cyprus visa costs, studying in Cyprus, and North Cyprus versus the Republic of Cyprus. They are built only from the sourced knowledge base and the scam-pattern list, and every answer lists its sources.
 - One live landing page per sector at `/jobs/<sector>` (construction, hospitality, logistics and so on), filled from the opportunity board.
@@ -129,7 +138,7 @@ python -m musa_sentinel draft partner_cy_agency contact="HR Team" company="MUSA"
 python -m musa_sentinel whatsapp-sim "Visa 100% guarantee, pay today" --lang ur   # bot reply, offline
 python -m musa_sentinel leads-page --leads samples/leads.jsonl   # preview the leads page with demo data
 python -m musa_sentinel build                       # regenerate Scam Shield data + Dashy page after editing data/*.json
-python -m unittest discover -s tests                # 109 tests
+python -m unittest discover -s tests                # 112 tests
 ```
 
 Add `--json` before the subcommand to get machine-readable output for n8n, Make or Zapier, e.g. `python -m musa_sentinel --json scan ...`.

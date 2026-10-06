@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 from musa_sentinel import matching, payments, revenue, traps as traps_mod, whatsapp, leadlog
 
-from . import DATA_DIR, STATIC_DIR, admin_ui, agents, compliance, db, scout, seo, ui, urdu
+from . import DATA_DIR, STATIC_DIR, admin_ui, agents, alerts, compliance, db, scout, seo, ui, urdu
 
 FLASH = {
     "verified": ("ok", "Marked verified."), "flagged": ("ok", "Flagged."), "expired": ("ok", "Expired."), "added": ("ok", "Opportunity added."),
@@ -26,6 +26,7 @@ FLASH = {
     "erased": ("ok", "Personal data erased and logged."), "applied": ("ok", "Application received. We will email you within 2 working days."),
     "requested": ("ok", "Request received. We will reply within 1 working day."), "deleted": ("ok", "Your profile was deleted."),
     "claimed": ("ok", "Thank you. We will confirm your payment and start your report."),
+    "alert_sent": ("ok", "Marked sent."),
 }
 EXAMPLE_SCAM = ("Assalam o alaikum brother. Cyprus construction visa 100% guarantee hai. Total package 9 lakh rupees. "
                 "Embassy appointment not available, we arrange it. Pay today, only 3 seats left. Send to my personal account, contract after payment.")
@@ -93,6 +94,7 @@ def admin_kpis(bot):
         "last_scout": last["started_at"][:16].replace("T", " ") if last else "never",
         "sources_on": sum(1 for x in scout.load_sources() if x.get("enabled") and x.get("url")),
         "wa": leadlog.summarise(leadlog.load(bot.leads_file)),
+        "alerts_todo": sum(len(i["todo"]) for i in alerts.queue(bot.opted_out)),
     }
 
 
@@ -107,6 +109,8 @@ def admin_queue(k):
         q.append(("/admin/leads", "WhatsApp: %d to deliver, %d payments to verify, %d report requests" % (wa["to_deliver"], wa["to_verify"], wa["hot"])))
     if k["dsar_open"]:
         q.append(("/admin/compliance", "Answer %d data request(s) (legal deadline: 1 month)" % k["dsar_open"]))
+    if k.get("alerts_todo"):
+        q.append(("/admin/alerts", "Send %d job alert(s) to confirmed subscribers" % k["alerts_todo"]))
     if k["employers_new"]:
         q.append(("/admin/employers", "Call back %d employer(s)" % k["employers_new"]))
     if k["partners_pending"]:
@@ -131,6 +135,10 @@ def opportunity_filters(qs):
 def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=None, stripe_secret=None):
     Base = whatsapp.make_handler(bot, verify_token, app_secret, admin_password, stripe_secret)
     BOT_GET = {"/webhook", "/admin/leads"}
+    if not any(getattr(h, "musa_alerts", False) for h in bot.hooks):
+        hook = alerts.bot_hook(ui.site_url())
+        hook.musa_alerts = True
+        bot.hooks.append(hook)
 
     class Handler(Base):
         server_version = "MUSA-Corridor/1.0"
@@ -189,7 +197,9 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                     return data if isinstance(data, dict) else {}
                 except ValueError:
                     return {}
-            return {k: v[0] for k, v in parse_qs(raw, keep_blank_values=True).items()}
+            full = parse_qs(raw, keep_blank_values=True)
+            self.form_lists = full
+            return {k: v[0] for k, v in full.items()}
 
         def ip(self):
             return (self.headers.get("X-Forwarded-For") or self.client_address[0]).split(",")[0].strip()
@@ -288,6 +298,11 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 p = db.q("SELECT * FROM partners WHERE slug=? AND status='approved' AND billing_status='active' "
                          "AND (paid_until IS NULL OR paid_until >= ?)", (m.group(1), db.now_iso()), one=True)
                 return (self.html(ui.partner_badge(p)) or True) if p else None
+            if path == "/alerts":
+                return self.html(ui.alerts_page(list(seo.SECTOR_INTRO), [qs.get("sector")])) or True
+            m = re.fullmatch(r"/alerts/stop/([A-Za-z0-9_-]{16,64})", path)
+            if m:
+                return self.html(ui.alerts_stop_page(m.group(1), done=qs.get("m") == "stopped")) or True
             if path == "/guides":
                 return self.html(seo.guides_index(state.guides)) or True
             m = re.fullmatch(r"/guides/([a-z0-9-]+)", path)
@@ -377,6 +392,12 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             if m:
                 db.x("UPDATE orders SET status='claimed', claimed_at=? WHERE ref=? AND status='requested'", (db.now_iso(), m.group(1)))
                 return self.redirect("/order/%s?m=claimed" % m.group(1))
+            if path == "/alerts":
+                return self.post_alerts(f)
+            m = re.fullmatch(r"/alerts/stop/([A-Za-z0-9_-]{16,64})", path)
+            if m:
+                alerts.stop(m.group(1))
+                return self.redirect("/alerts/stop/%s?m=stopped" % m.group(1))
             if path == "/business/partners":
                 return self.post_partner(f)
             m = re.fullmatch(r"/partner/billing/(PARTNER-\d+-[0-9A-F]{6})/paid", path)
@@ -424,6 +445,16 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                       amount_pkr=state.payments["products"][product]["pkr"], created_at=db.now_iso(), consent_at=db.now_iso())
             db.audit("customer", "order.created", target=ref)
             return self.redirect("/order/" + ref)
+
+        def post_alerts(self, f):
+            valid = list(seo.SECTOR_INTRO)
+            chosen = [x for x in getattr(self, "form_lists", {}).get("sector", []) if x in valid]
+            lang = "ur" if f.get("lang") == "ur" else "en"
+            if not ui.whatsapp_number():
+                return self.html(ui.alerts_page(valid, chosen, "Alerts are not available yet.", lang), 503)
+            if not f.get("consent"):
+                return self.html(ui.alerts_page(valid, chosen, "Please tick the consent box.", lang), 400)
+            return self.html(ui.alerts_confirm_page(alerts.create(chosen, lang)))
 
         def post_partner(self, f):
             required = ("org_name", "org_type", "country", "contact_name", "email")
@@ -544,6 +575,10 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
             m = re.fullmatch(r"/admin/employers/(\d+)", path)
             if m:
                 return self.employer_detail(int(m.group(1)), qs, fl)
+            if path == "/admin/alerts":
+                site = ui.site_url()
+                return self.html(admin_ui.alerts(alerts.stats(), alerts.queue(bot.opted_out),
+                                                 lambda o, a: alerts.message(o, a["lang"], site, a["token"]), fl))
             if path == "/admin/scout":
                 return self.html(admin_ui.scout(scout.load_sources(), db.q("SELECT * FROM scout_runs ORDER BY id DESC LIMIT 50"), fl))
             if path == "/admin/compliance":
@@ -631,6 +666,11 @@ def make_handler(state, bot, verify_token=None, app_secret=None, admin_password=
                 db.x("UPDATE employer_requests SET status='contacted' WHERE id=?", (int(m.group(1)),))
                 db.audit("admin", "employer.contacted", target=m.group(1))
                 return self.redirect("/admin/employers?m=contacted")
+            m = re.fullmatch(r"/admin/alerts/(\d+)/(\d+)/sent", path)
+            if m:
+                alerts.mark_sent(int(m.group(1)), int(m.group(2)))
+                db.audit("admin", "alert.sent", target="%s:%s" % m.groups())
+                return self.redirect("/admin/alerts?m=alert_sent")
             if path == "/admin/scout/run":
                 scout.run_all()
                 return self.redirect("/admin/scout?m=scout")

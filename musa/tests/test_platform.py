@@ -19,7 +19,7 @@ os.environ["MUSA_LEADS_FILE"] = os.path.join(TMP, "leads.jsonl")
 os.environ["MUSA_CONCIERGE_AI"] = "auto"
 os.environ.pop("ANTHROPIC_API_KEY", None)
 
-from musa_platform import agents, compliance, db, scout, web  # noqa: E402
+from musa_platform import agents, alerts as alerts_mod, compliance, db, scout, web  # noqa: E402
 from musa_sentinel import whatsapp  # noqa: E402
 
 AUTH = {"Authorization": "Basic " + base64.b64encode(b"admin:pw").decode()}
@@ -35,7 +35,7 @@ class Server:
         state = web.State()
         scout.seed()
         bot = whatsapp.Bot(leads_file=os.environ["MUSA_LEADS_FILE"])
-        self.state = state
+        self.state, self.bot = state, bot
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), web.make_handler(state, bot, "vt", "as", "pw", "whsec_test"))
         self.httpd.RequestHandlerClass.log_message = lambda *a: None
         self.base = "http://127.0.0.1:%d" % self.httpd.server_address[1]
@@ -430,3 +430,83 @@ class StripeRouting(unittest.TestCase):
     def test_bad_signature(self):
         body = json.dumps(_checkout("x", "e")).encode()
         self.assertEqual(SRV.req("/stripe/webhook", body, {"Stripe-Signature": "t=1,v1=00"})[0], 400)
+
+
+def _wa(frm, body, mid):
+    return {"entry": [{"changes": [{"value": {"messages": [{"id": mid, "from": frm, "type": "text", "text": {"body": body}}]}}]}]}
+
+
+class JobAlerts(unittest.TestCase):
+    def setUp(self):
+        os.environ["MUSA_WHATSAPP"] = "+35794031786"
+
+    def tearDown(self):
+        os.environ.pop("MUSA_WHATSAPP", None)
+
+    def _signup(self, sectors, lang="en"):
+        code, body, _ = SRV.req("/alerts", [("sector", s) for s in sectors] + [("lang", lang), ("consent", "on")])
+        self.assertEqual(code, 200)
+        m = re.search(r"ALERTS ([A-Z0-9]{6})", body)
+        self.assertIsNotNone(m)
+        self.assertIn("wa.me/35794031786", body)
+        return m.group(1)
+
+    def test_double_opt_in_queue_and_stop(self):
+        self.assertEqual(SRV.req("/alerts?sector=Construction")[0], 200)
+        self.assertEqual(SRV.req("/alerts", {"sector": "Construction"})[0], 400)  # no consent
+        code = self._signup(["Construction", "Hospitality", "Not a sector"])
+        a = db.q("SELECT * FROM alerts WHERE code=?", (code,), one=True)
+        self.assertEqual((a["status"], a["contact"], a["sectors"]), ("pending", None, "Construction,Hospitality"))
+        # confirming from WhatsApp binds the number that actually wrote to us
+        out = SRV.bot.handle(_wa("923001112233", "alerts " + code.lower(), "m-al-1"))
+        self.assertIn("Job alerts are on", out[0]["text"])
+        a = db.q("SELECT * FROM alerts WHERE id=?", (a["id"],), one=True)
+        self.assertEqual((a["status"], a["contact"]), ("active", "923001112233"))
+        # a wrong code is just scanned like any other message
+        self.assertNotIn("Job alerts are on", SRV.bot.handle(_wa("923001112233", "ALERTS ZZZZZZ", "m-al-2"))[0]["text"])
+        oid = db.insert("opportunities", hash="al-1", title="Steel fixers, Limassol", sector="Construction", source="BEOE", source_tier=0,
+                        status="verified", found_at=db.now_iso())
+        db.insert("opportunities", hash="al-2", title="Greenhouse workers", sector="Agriculture", source="BEOE", source_tier=0,
+                  status="verified", found_at=db.now_iso())
+        db.insert("opportunities", hash="al-3", title="Unchecked mason lead", sector="Construction", source="Board", source_tier=4,
+                  status="lead", found_at=db.now_iso())
+        code_, page, _ = SRV.req("/admin/alerts", headers=AUTH)
+        self.assertEqual(code_, 200)
+        self.assertIn("Steel fixers", page)
+        self.assertIn("wa.me/923001112233", page)
+        self.assertIn("•••2233", page)
+        self.assertNotIn("Unchecked mason lead", page)  # leads are never pushed to people
+        todo = {i["opp"]["title"]: len(i["todo"]) for i in alerts_mod.queue()}
+        self.assertEqual(todo["Steel fixers, Limassol"], 1)
+        self.assertEqual(todo["Greenhouse workers"], 0)
+        self.assertRegex(SRV.req("/admin", headers=AUTH)[1], r"Send \d+ job alert")
+        self.assertEqual(SRV.req("/admin/alerts/%d/%d/sent" % (a["id"], oid), b"", AUTH)[0], 303)
+        self.assertEqual({i["opp"]["title"]: len(i["todo"]) for i in alerts_mod.queue()}["Steel fixers, Limassol"], 0)
+        # people who sent STOP to the bot drop out of the queue
+        self.assertEqual(sum(len(i["todo"]) for i in alerts_mod.queue({"923001112233"})), 0)
+        self.assertIn("alerts", compliance.find_personal("+92 300 1112233"))
+        # ALERTS OFF deletes the subscription and its send log
+        self.assertIn("Job alerts are off", SRV.bot.handle(_wa("923001112233", "ALERTS OFF", "m-al-3"))[0]["text"])
+        self.assertIsNone(db.q("SELECT 1 FROM alerts WHERE id=?", (a["id"],), one=True))
+        self.assertEqual(db.count("SELECT COUNT(*) FROM alert_sends WHERE alert_id=?", (a["id"],)), 0)
+
+    def test_web_stop_link_and_message_text(self):
+        code = self._signup([], "ur")
+        SRV.bot.handle(_wa("923009998877", "ALERTS " + code, "m-al-4"))
+        a = db.q("SELECT * FROM alerts WHERE code=?", (code,), one=True)
+        self.assertEqual(a["sectors"], "")
+        msg = alerts_mod.message({"id": 5, "title": "Cooks", "sector": "Hospitality", "status": "signal"}, "ur", "https://m.example", a["token"])
+        self.assertIn("https://m.example/alerts/stop/" + a["token"], msg)
+        self.assertIn("Kisi ko paisa dene se pehle", msg)
+        self.assertEqual(SRV.req("/alerts/stop/" + a["token"])[0], 200)
+        self.assertEqual(SRV.req("/alerts/stop/" + a["token"], b"")[0], 303)
+        self.assertIsNone(db.q("SELECT 1 FROM alerts WHERE id=?", (a["id"],), one=True))
+
+    def test_unavailable_without_whatsapp_number_and_pending_expiry(self):
+        os.environ.pop("MUSA_WHATSAPP", None)
+        self.assertEqual(SRV.req("/alerts", {"consent": "on"})[0], 503)
+        os.environ["MUSA_WHATSAPP"] = "+35794031786"
+        code = self._signup(["Care"])
+        db.x("UPDATE alerts SET created_at=? WHERE code=?", (db.now_iso(-8), code))
+        compliance.run_retention()
+        self.assertIsNone(db.q("SELECT 1 FROM alerts WHERE code=?", (code,), one=True))

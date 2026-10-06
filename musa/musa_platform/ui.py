@@ -71,7 +71,7 @@ def layout(title, body, active="", description="", admin=False, flash=None, path
     if admin:
         nav = "".join('<a href="%s"%s>%s</a>' % (h, ' aria-current="page"' if h == active else "", t) for h, t in [
             ("/admin", "Overview"), ("/admin/opportunities", "Opportunities"), ("/admin/orders", "Orders"), ("/admin/partners", "Partners"),
-            ("/admin/employers", "Employers"), ("/admin/leads", "WhatsApp leads"), ("/admin/scout", "Scout"), ("/admin/compliance", "Compliance"), ("/admin/revenue", "Revenue")])
+            ("/admin/employers", "Employers"), ("/admin/alerts", "Alerts"), ("/admin/leads", "WhatsApp leads"), ("/admin/scout", "Scout"), ("/admin/compliance", "Compliance"), ("/admin/revenue", "Revenue")])
     flash_html = ""
     if flash:
         kind, msg = flash
@@ -208,9 +208,10 @@ def opportunities_page(rows, sectors, f, total):
  <div style="align-self:end"><button class="btn primary" type="submit">Filter</button></div>
 </form>
 <div class="opps">%s</div>
+%s
 <p class="muted">API: <a href="/api/opportunities">/api/opportunities</a> (JSON)</p>
 </div></section>""" % (fmt_int(total), opts([""] + sectors, f.get("sector", "")), " selected" if f.get("tier") == "0" else "",
-                       " selected" if f.get("tier") == "2" else "", " selected" if f.get("visa") == "1" else "", e(f.get("q", "")), cards), active="/opportunities", path="/opportunities", description="Live Cyprus and EU opportunities for Pakistani workers, each labelled by source and trust level.")
+                       " selected" if f.get("tier") == "2" else "", " selected" if f.get("visa") == "1" else "", e(f.get("q", "")), cards, alerts_cta(f.get("sector") or None)), active="/opportunities", path="/opportunities", description="Live Cyprus and EU opportunities for Pakistani workers, each labelled by source and trust level.")
 
 
 def opportunity_detail(o):
@@ -474,6 +475,7 @@ def privacy_page():
 <tr><td>Concierge questions</td><td>Answer your question</td><td>Not stored by MUSA. Sent to Anthropic to generate AI answers when AI mode is on.</td></tr>
 <tr><td>Report orders</td><td>Contract (Art. 6(1)(b)); accounting law</td><td>%d years</td></tr>
 <tr><td>CV / match profiles</td><td>Consent (Art. 6(1)(a)); withdraw any time</td><td>%d months, or until you delete it</td></tr>
+<tr><td>Job alerts (WhatsApp number, sectors)</td><td>Consent (Art. 6(1)(a)); confirmed from your own WhatsApp</td><td>%d months, or until you send ALERTS OFF. Unconfirmed sign-ups: 7 days.</td></tr>
 <tr><td>Employer requests</td><td>Pre-contract steps (Art. 6(1)(b))</td><td>%d months</td></tr>
 <tr><td>Partner applications</td><td>Pre-contract steps; verification (KYB)</td><td>While the partnership lasts</td></tr>
 <tr><td>WhatsApp leads</td><td>Answer your request</td><td>WhatsApp number, dates and pattern IDs, never message text</td></tr>
@@ -481,7 +483,7 @@ def privacy_page():
 <h2>Your rights</h2><p>You can ask for a copy of your data, ask us to correct or delete it, object to processing, or withdraw consent. <a href="/privacy/request">Make a request</a>. We reply within one month. You can also complain to your data protection authority (in Cyprus, the Commissioner for Personal Data Protection).</p>
 <h2>Processors</h2><p>Hosting provider (EU region recommended), Anthropic (AI answers, only when AI mode is on), Meta WhatsApp Business (if you message us there), and payment providers (Stripe, JazzCash, Easypaisa, banks) for payments you make.</p>
 <h2>Cookies</h2><p>We use no tracking or advertising cookies. The site works without any cookies; the admin area uses your browser's built-in login.</p></div></section>""" % (
-        r["orders"] // 365, r["profiles"] // 30, r["employer_requests"] // 30))
+        r["orders"] // 365, r["profiles"] // 30, r["alerts"] // 30, r["employer_requests"] // 30))
 
 
 def terms_page():
@@ -497,8 +499,51 @@ def privacy_request_page(done=False):
 %s<label>The email or WhatsApp number you used<input name="contact" required maxlength="120"></label>
 <label>Request<select name="kind"><option value="export">Send me a copy of my data</option><option value="erase">Delete my data</option></select></label>
 <button class="btn primary" type="submit">Send request</button><small class="muted">We will contact you at that address to confirm it is you before acting. Answer within one month.</small></form>
-<div class="card"><h3>Faster options</h3><p class="muted">CV profiles can be deleted instantly from your private CV link. On WhatsApp, send STOP to stop all messages.</p></div></div></section>""" % (
+<div class="card"><h3>Faster options</h3><p class="muted">CV profiles can be deleted instantly from your private CV link. Job alerts stop instantly with ALERTS OFF on WhatsApp. On WhatsApp, send STOP to stop all messages.</p></div></div></section>""" % (
         '<div class="flash">Request received. We will contact you to confirm your identity, then act within one month.</div>' if done else ""))
+
+
+def alerts_cta(sector=None):
+    href = "/alerts" + (("?sector=" + quote(sector)) if sector else "")
+    return ('<div class="card stack"><span class="eyebrow">Free · WhatsApp</span><h3>Get job alerts%s</h3><p class="muted">One WhatsApp message when an opening from an official source or a MUSA-checked employer appears. '
+            'No agents, no spam, stop any time.</p><a class="btn primary" href="%s">Turn on alerts</a></div>') % ((" for " + e(sector.lower())) if sector else "", e(href))
+
+
+def alerts_page(sectors, chosen=(), error=None, lang="en"):
+    boxes = "".join('<label class="check"><input type="checkbox" name="sector" value="%s"%s> <span>%s</span></label>' % (
+        e(s), " checked" if s in chosen else "", e(s)) for s in sectors)
+    off = "" if whatsapp_number() else '<div class="flash err">Alerts open once the MUSA WhatsApp number is configured.</div>'
+    return layout("Job alerts on WhatsApp", """<section><div class="wrap split">
+<form class="stack" method="post" action="/alerts"><span class="eyebrow">Job alerts · free</span><h1>Hear about checked openings first</h1>
+<p class="muted">Pick your sectors. When an opening from an official source or a MUSA-checked employer appears, we send you one WhatsApp message with the link and the checks to do before paying anyone.</p>%s%s
+<fieldset class="card stack" style="margin:0"><legend><b>Sectors</b> <small class="muted">(none ticked = all)</small></legend><div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px">%s</div></fieldset>
+<label>Language<select name="lang"><option value="en"%s>English</option><option value="ur"%s>Roman Urdu</option></select></label>
+%s<button class="btn primary" type="submit"%s>Continue to WhatsApp</button></form>
+<div class="stack"><div class="card stack"><h3>How it works</h3><ol class="muted" style="margin:0;padding-left:18px"><li>Choose sectors and continue.</li><li>Send the code we show you to MUSA on WhatsApp. That confirms the number is yours.</li><li>Get one message per checked opening. Reply <b>ALERTS OFF</b> to stop.</li></ol></div>
+<div class="card"><h3>What we never send</h3><p class="muted">Agent adverts, "visa guaranteed" offers, or anything we have not traced to an official source or a checked employer. MUSA never asks for money on WhatsApp outside its published business accounts.</p></div></div>
+</div></section>""" % (('<div class="flash err">%s</div>' % e(error)) if error else "", off, boxes, " selected" if lang != "ur" else "", " selected" if lang == "ur" else "",
+                      consent_box("alerts"), "" if whatsapp_number() else " disabled"),
+                  active="/opportunities", path="/alerts", description="Free WhatsApp alerts for checked Cyprus job openings for Pakistani workers. Double opt-in, stop any time.")
+
+
+def alerts_confirm_page(a):
+    msg = "ALERTS " + a["code"]
+    link = wa_link(msg)
+    return layout("Confirm your job alerts", """<section><div class="wrap stack" style="max-width:720px"><span class="stamp amber">One step left</span>
+<h1>Send this code on WhatsApp</h1><p>To switch alerts on, send this message to MUSA from the WhatsApp number that should get them:</p>
+<div class="mrz" style="font-size:1.4rem;text-align:center"><b>%s</b></div>
+<div class="row"><a class="btn primary" href="%s" target="_blank" rel="noopener">Open WhatsApp and send</a></div>
+<p class="muted">The code expires in 7 days. If you change your mind, just don't send it: nothing else is stored. Already subscribed? <a href="/alerts/stop/%s">Delete this sign-up</a>.</p></div></section>""" % (
+        e(msg), e(link), e(a["token"])), noindex=True)
+
+
+def alerts_stop_page(token, done=False):
+    if done:
+        body = '<span class="stamp green">Stopped</span><h1>Alerts are off</h1><p>Your subscription was deleted. You will get no more alerts.</p><a class="btn" href="/opportunities">Browse opportunities</a>'
+    else:
+        body = ('<h1>Stop job alerts?</h1><p>This deletes your alert subscription.</p><form method="post" action="/alerts/stop/%s">'
+                '<button class="btn copper" type="submit">Stop alerts and delete</button></form>') % e(token)
+    return layout("Stop job alerts", '<section><div class="wrap stack" style="max-width:720px">%s</div></section>' % body, noindex=True)
 
 
 def not_found():

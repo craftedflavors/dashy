@@ -149,6 +149,7 @@ class Bot:
         self.seen = OrderedDict()            # message-id dedupe (Meta retries deliveries)
         self.hits = {}                       # wa_id -> deque of scan timestamps
         self._lock = threading.Lock()
+        self.hooks = []                      # callables (wa_id, body, lang) -> reply text or None; first match wins
         self._restore_opt_outs()
 
     def _restore_opt_outs(self):
@@ -227,6 +228,15 @@ class Bot:
 
         body = (msg.get("text") or {}).get("body", "").strip()
         cmd = COMMANDS.get(body.lower().strip(" .!?*"))
+
+        for hook in self.hooks:  # platform commands (e.g. ALERTS <code>); an explicit command also counts as opting back in
+            reply = hook(wa_id, body, lang)
+            if reply:
+                if wa_id in self.opted_out:
+                    self.opted_out.discard(wa_id)
+                    self._log(wa_id, "opt_in")
+                self._reply(out, wa_id, reply)
+                return
 
         if cmd == "stop":
             self.opted_out.add(wa_id)

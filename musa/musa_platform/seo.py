@@ -7,7 +7,7 @@ import re
 from datetime import datetime, timezone
 
 from . import db
-from .ui import e, layout, opp_card, site_url, wa_link
+from .ui import alerts_cta, e, layout, opp_card, site_url, wa_link
 
 SECTOR_INTRO = {
     "Construction": "Masons, steel fixers, shuttering carpenters, electricians and site labourers are among the most-requested roles for third-country workers in Cyprus.",
@@ -114,7 +114,8 @@ def sector_page(sector, rows, total, visa_count):
 <div class="note">A listing is a lead, not a verified job. Before paying anyone, check the OEP licence, the BEOE permission and the employer, or <a href="/report">let us check it</a>.</div>
 <div class="opps">%s</div>
 <div class="split" style="margin-top:20px"><div class="card stack"><h3>Get matched to %s roles</h3><p class="muted">Enter your skills and experience; we score you against what Cyprus employers ask for and build an EU-format CV.</p><a class="btn primary" href="/match">Match me</a></div>%s</div>
-</div></section>""" % (e(title), e(intro), total, visa_count, cards, e(sector.lower()), _cta(sector.lower() + " jobs")),
+<div style="margin-top:20px">%s</div>
+</div></section>""" % (e(title), e(intro), total, visa_count, cards, e(sector.lower()), _cta(sector.lower() + " jobs"), alerts_cta(sector)),
                   active="/opportunities", path="/jobs/" + slugify(sector), description="%s Live listings with source labels and a free scam check." % intro, jsonld=ld)
 
 
@@ -124,7 +125,7 @@ def sitemap(guide_items, sectors):
         return None
     today = datetime.now(timezone.utc).date().isoformat()
     paths = ["/", "/ur", "/ur/check", "/check", "/opportunities", "/guides", "/match", "/ask", "/pricing", "/business", "/business/partners",
-             "/business/employers", "/agents", "/privacy", "/terms"]
+             "/business/employers", "/alerts", "/agents", "/privacy", "/terms"]
     paths += ["/guides/" + g["slug"] for g in guide_items] + ["/jobs/" + slugify(s) for s in sectors]
     paths += ["/opportunities/%d" % r["id"] for r in db.q("SELECT id FROM opportunities WHERE status IN ('signal','verified') ORDER BY id DESC LIMIT 500")]
     paths += ["/partners/" + r["slug"] for r in db.q("SELECT slug FROM partners WHERE status='approved'")]
@@ -134,7 +135,7 @@ def sitemap(guide_items, sectors):
 
 def robots():
     base = site_url()
-    lines = ["User-agent: *", "Disallow: /admin", "Disallow: /cv/", "Disallow: /order/", "Disallow: /shortlist/", "Disallow: /api/", "Allow: /"]
+    lines = ["User-agent: *", "Disallow: /admin", "Disallow: /cv/", "Disallow: /order/", "Disallow: /shortlist/", "Disallow: /api/", "Disallow: /alerts/stop/", "Allow: /"]
     if base:
         lines.append("Sitemap: %s/sitemap.xml" % base)
     return "\n".join(lines) + "\n"
